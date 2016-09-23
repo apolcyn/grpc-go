@@ -42,6 +42,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"sync/atomic"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -105,6 +106,11 @@ type http2Client struct {
 	goAwayID uint32
 	// prevGoAway ID records the Last-Stream-ID in the previous GOAway frame.
 	prevGoAwayID uint32
+	// TODO: apolcyn, take this out
+	flushCount uint32
+	scheduledFlushCount uint32
+	pendingFlushCount int32
+	pendingFlushCountBuckets [200]uint32
 }
 
 func dial(fn func(context.Context, string) (net.Conn, error), ctx context.Context, addr string) (net.Conn, error) {
@@ -196,6 +202,9 @@ func newHTTP2Client(ctx context.Context, addr string, opts ConnectOptions) (_ Cl
 		creds:           opts.PerRPCCredentials,
 		maxStreams:      math.MaxInt32,
 		streamSendQuota: defaultWindowSize,
+		flushCount:      uint32(0),
+		scheduledFlushCount:      uint32(0),
+		pendingFlushCount: int32(0),
 	}
 	// Start the reader goroutine for incoming message. Each transport has
 	// a dedicated goroutine which reads HTTP2 frame from network. Then it
@@ -495,6 +504,11 @@ func (t *http2Client) CloseStream(s *Stream, err error) {
 // accessed any more.
 func (t *http2Client) Close() (err error) {
 	t.mu.Lock()
+	grpclog.Println("closing client, flush count was: ", t.flushCount)
+	grpclog.Println("closing client, scheduled flush count was: ", t.scheduledFlushCount)
+	for i, v := range t.pendingFlushCountBuckets {
+		grpclog.Println("pending flush count for bucket %d was %d: ", i, v)
+	}
 	if t.state == closing {
 		t.mu.Unlock()
 		return
@@ -660,6 +674,8 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 		t.writableChan <- 0
 		if r.Len() == 0 {
 			if t.framer.adjustNumWriters(0) == 0 {
+				atomic.AddInt32(&t.pendingFlushCount, 1)
+				t.scheduledFlushCount += 1
 				t.controlBuf.put(&flushIO{})
 			}
 			break
@@ -1024,6 +1040,9 @@ func (t *http2Client) controller() {
 				case *resetStream:
 					t.framer.writeRSTStream(true, i.streamID, i.code)
 				case *flushIO:
+					t.pendingFlushCountBuckets[atomic.AddInt32(&t.pendingFlushCount, 0)] += 1
+					atomic.AddInt32(&t.pendingFlushCount, -1)
+					t.flushCount += 1
 					t.framer.flushWrite()
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)

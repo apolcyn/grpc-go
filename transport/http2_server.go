@@ -41,6 +41,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -87,6 +88,11 @@ type http2Server struct {
 	activeStreams map[uint32]*Stream
 	// the per-stream outbound flow control window size set by the peer.
 	streamSendQuota uint32
+	// TODO: apolcyn, take this out
+	flushCount uint32
+	scheduledFlushCount uint32
+	pendingFlushCount int32
+	pendingFlushCountBuckets [200]uint32
 }
 
 // newHTTP2Server constructs a ServerTransport based on HTTP2. ConnectionError is
@@ -135,6 +141,9 @@ func newHTTP2Server(conn net.Conn, maxStreams uint32, authInfo credentials.AuthI
 		shutdownChan:    make(chan struct{}),
 		activeStreams:   make(map[uint32]*Stream),
 		streamSendQuota: defaultWindowSize,
+		flushCount:      uint32(0),
+		scheduledFlushCount:      uint32(0),
+		pendingFlushCount:      int32(0),
 	}
 	go t.controller()
 	t.writableChan <- 0
@@ -576,6 +585,8 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	for {
 		if r.Len() == 0 {
 			if t.framer.adjustNumWriters(0) == 0 {
+				t.scheduledFlushCount += 1
+				atomic.AddInt32(&t.pendingFlushCount, 1)
 				t.controlBuf.put(&flushIO{})
 			}
 			return nil
@@ -697,7 +708,11 @@ func (t *http2Server) controller() {
 					t.mu.Unlock()
 					t.framer.writeGoAway(true, sid, http2.ErrCodeNo, nil)
 				case *flushIO:
+					t.pendingFlushCountBuckets[atomic.AddInt32(&t.pendingFlushCount, 0)] += 1
+					atomic.AddInt32(&t.pendingFlushCount, -1)
+					t.flushCount += 1
 					t.framer.flushWrite()
+
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)
 				default:
@@ -719,6 +734,11 @@ func (t *http2Server) controller() {
 // could cause some resource issue. Revisit this later.
 func (t *http2Server) Close() (err error) {
 	t.mu.Lock()
+	grpclog.Println("server closing down. flush count was: ", t.flushCount)
+	grpclog.Println("server closing down. scheduled flush count was: ", t.scheduledFlushCount)
+	for i, v := range t.pendingFlushCountBuckets {
+		grpclog.Println("pending flush count bucket %d value was %d. ", i, v)
+	}
 	if t.state == closing {
 		t.mu.Unlock()
 		return errors.New("transport: Close() was already called")
