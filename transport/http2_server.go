@@ -575,6 +575,9 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	r := bytes.NewBuffer(data)
 	for {
 		if r.Len() == 0 {
+			if t.framer.adjustNumWriters(0) == 0 {
+				t.controlBuf.put(&flushIO{})
+			}
 			return nil
 		}
 		size := http2MaxFrameLen
@@ -636,17 +639,12 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		var forceFlush bool
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
-			forceFlush = true
-		}
-		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
+		// TODO: apolcyn, still flush after writeData error
+		if err := t.framer.writeData(false, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
-		}
+		t.framer.adjustNumWriters(-1)
 		t.writableChan <- 0
 	}
 
