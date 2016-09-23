@@ -8,6 +8,7 @@ import (
 	_ "net/http/pprof"
 	"sync"
 	"time"
+	"atomic"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
