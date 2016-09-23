@@ -109,6 +109,7 @@ func closeLoopStream() {
 			for i := 0; i < 100; i++ {
 				streamCaller(stream)
 			}
+			go func(inFlight int32, done chan bool)
 			for range ch {
 				start := time.Now()
 				streamCaller(stream)
@@ -116,8 +117,10 @@ func closeLoopStream() {
 				mu.Lock()
 				s.Add(elapse)
 				mu.Unlock()
+				done <- true
 			}
 			wg.Done()
+			select
 		}()
 	}
 	// Stop the client when time is up.
