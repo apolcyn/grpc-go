@@ -101,6 +101,8 @@ func closeLoopStream() {
 	// Distribute RPCs over maxConcurrentCalls workers.
 	for i := 0; i < *maxConcurrentRPCs; i++ {
 		go func() {
+			inFlight := int32(0)
+			done := make(chan bool)
 			stream, err := tc.StreamingCall(context.Background())
 			if err != nil {
 				grpclog.Fatalf("%v.StreamingCall(_) = _, %v", tc, err)
@@ -109,18 +111,26 @@ func closeLoopStream() {
 			for i := 0; i < 100; i++ {
 				streamCaller(stream)
 			}
-			go func(inFlight int32, done chan bool)
 			for range ch {
-				start := time.Now()
-				streamCaller(stream)
-				elapse := time.Since(start)
-				mu.Lock()
-				s.Add(elapse)
-				mu.Unlock()
-				done <- true
+				go func(inFlight int32, done chan bool) {
+					if atomic.AddInt32(&inFlight, 0) > 0 {
+						grpclog.Fatalf("more than one rpc on stream in flight")
+					}
+					atomic.AddInt32(&inFlight, 1)
+					start := time.Now()
+					streamCaller(stream)
+					elapse := time.Since(start)
+					mu.Lock()
+					s.Add(elapse)
+					mu.Unlock()
+					done <- true
+				}(inFlight, done)
+				select {
+				case <- done:
+					atomic.AddInt32(&inFlight, -1)
+				}
 			}
 			wg.Done()
-			select
 		}()
 	}
 	// Stop the client when time is up.
