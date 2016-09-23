@@ -611,7 +611,7 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		var (
 			endStream  bool
-			forceFlush bool
+		//	forceFlush bool
 		)
 		if opts.Last && r.Len() == 0 {
 			endStream = true
@@ -643,23 +643,19 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 {
-			// Do a force flush iff this is last frame for the entire gRPC message
-			// and the caller is the only writer at this moment.
-			forceFlush = true
-		}
 		// If WriteData fails, all the pending streams will be handled
 		// by http2Client.Close(). No explicit CloseStream() needs to be
 		// invoked.
-		if err := t.framer.writeData(forceFlush, s.id, endStream, p); err != nil {
+		if err := t.framer.writeData(false, s.id, endStream, p); err != nil {
 			t.notifyError(err)
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
-		}
+		t.framer.adjustNumWriters(-1)
 		t.writableChan <- 0
 		if r.Len() == 0 {
+			if t.framer.adjustNumWriters(0) == 0 {
+				t.controlBuf.put(&flushIO{})
+			}
 			break
 		}
 	}
