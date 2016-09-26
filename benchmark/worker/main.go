@@ -38,6 +38,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"strconv"
 	"time"
@@ -211,6 +213,18 @@ func main() {
 		grpclog.Fatalf("failed to listen: %v", err)
 	}
 	grpclog.Printf("worker listening at port %v", *driverPort)
+
+	go func() {
+		runtime.SetBlockProfileRate(100)
+		debugLis, err := net.Listen("tcp", ":0")
+		if err != nil {
+			grpclog.Fatalf("Failed to listen for profiling: %v", err)
+		}
+		grpclog.Println("worker profiling address: ", debugLis.Addr().String())
+		if err := http.Serve(debugLis, nil); err != nil {
+			grpclog.Fatalf("Failed to serve profiling: %v", err)
+		}
+	}()
 
 	s := grpc.NewServer()
 	stop := make(chan bool)
