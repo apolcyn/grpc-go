@@ -113,7 +113,7 @@ func setupClientEnv(config *testpb.ClientConfig) {
 	// Use all cpu cores available on machine by default.
 	// TODO: Revisit this for the optimal default setup.
 	if config.CoreLimit > 0 {
-		runtime.GOMAXPROCS(int(config.CoreLimit))
+		runtime.GOMAXPROCS(int(config.CoreLimit) / 2)
 	} else {
 		runtime.GOMAXPROCS(runtime.NumCPU())
 	}
@@ -317,28 +317,17 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 				// Now relying on worker client to reserve time to do warm up.
 				// The worker client needs to wait for some time after client is created,
 				// before starting benchmark.
-				done := make(chan bool)
 				for {
-					go func() {
-						start := time.Now()
-						if err := doRPC(stream, reqSize, respSize); err != nil {
-							select {
-							case <-bc.stop:
-							case done <- false:
-							}
-							return
-						}
-						elapse := time.Since(start)
-						bc.lockingHistograms[idx].add(int64(elapse))
-						select {
-						case <-bc.stop:
-						case done <- true:
-						}
-					}()
+					start := time.Now()
+					if err := doRPC(stream, reqSize, respSize); err != nil {
+						return
+					}
+					elapse := time.Since(start)
+					bc.lockingHistograms[idx].add(int64(elapse))
 					select {
 					case <-bc.stop:
 						return
-					case <-done:
+					default:
 					}
 				}
 			}(idx)
