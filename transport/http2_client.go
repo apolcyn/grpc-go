@@ -105,6 +105,7 @@ type http2Client struct {
 	goAwayID uint32
 	// prevGoAway ID records the Last-Stream-ID in the previous GOAway frame.
 	prevGoAwayID uint32
+	writeQueue *recvBuffer
 }
 
 func dial(fn func(context.Context, string) (net.Conn, error), ctx context.Context, addr string) (net.Conn, error) {
@@ -196,6 +197,7 @@ func newHTTP2Client(ctx context.Context, addr string, opts ConnectOptions) (_ Cl
 		creds:           opts.PerRPCCredentials,
 		maxStreams:      math.MaxInt32,
 		streamSendQuota: defaultWindowSize,
+		writeQueue:      newRecvBuffer(),
 	}
 	// Start the reader goroutine for incoming message. Each transport has
 	// a dedicated goroutine which reads HTTP2 frame from network. Then it
@@ -231,6 +233,7 @@ func newHTTP2Client(ctx context.Context, addr string, opts ConnectOptions) (_ Cl
 		}
 	}
 	go t.controller()
+	go t.writeLoop()
 	t.writableChan <- 0
 	return t, nil
 }
@@ -567,11 +570,53 @@ func (t *http2Client) GracefulClose() error {
 	return nil
 }
 
+type QueuedWriteRequest struct {
+	stream *Stream
+	data []byte
+	ops *Options
+}
+
+func (*QueuedWriteRequest) item() {
+}
+
+func (t *http2Client) writeLoop() {
+	for {
+		select {
+		case writeRequest := <-t.writeQueue.get():
+			var again = true
+		        t.writeQueue.load()
+			t.writeInternal(writeRequest.(*QueuedWriteRequest).stream, writeRequest.(*QueuedWriteRequest).data, writeRequest.(*QueuedWriteRequest).ops)
+			for again == true {
+				select {
+				case nextRequest := <-t.writeQueue.get():
+					t.writeQueue.load()
+					t.writeInternal(nextRequest.(*QueuedWriteRequest).stream, nextRequest.(*QueuedWriteRequest).data, nextRequest.(*QueuedWriteRequest).ops)
+				default:
+					again = false
+				}
+			}
+			t.framer.flushWrite()
+		case <-t.shutdownChan:
+			break
+		}
+	}
+}
+
+func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
+	q := &QueuedWriteRequest{
+		stream: s,
+		data: data,
+		ops: opts,
+	}
+	t.writeQueue.put(q)
+	return nil
+}
+
 // Write formats the data into HTTP2 data frame(s) and sends it out. The caller
 // should proceed only if Write returns nil.
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
 // if it improves the performance.
-func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
+func (t *http2Client) writeInternal(s *Stream, data []byte, opts *Options) error {
 	r := bytes.NewBuffer(data)
 	for {
 		var p []byte
