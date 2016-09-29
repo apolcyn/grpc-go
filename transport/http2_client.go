@@ -610,7 +610,7 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 			}
 		}
 		var (
-			endStream  bool
+			endStream bool
 		//	forceFlush bool
 		)
 		if opts.Last && r.Len() == 0 {
@@ -1018,7 +1018,9 @@ func (t *http2Client) controller() {
 				case *resetStream:
 					t.framer.writeRSTStream(true, i.streamID, i.code)
 				case *flushIO:
-					t.framer.flushWrite()
+					if t.framer.adjustNumWriters(0) == 0 {
+						t.framer.flushWrite()
+					}
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)
 				default:
