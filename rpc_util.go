@@ -204,7 +204,7 @@ const (
 
 // parser reads complete gRPC messages from the underlying reader.
 type parser struct {
-	r *Stream
+	r *transport.Stream
 }
 
 // recvMsg reads a complete gRPC message from the stream.
@@ -221,9 +221,9 @@ type parser struct {
 // that the underlying io.Reader must not return an incompatible
 // error.
 func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	frame, n, err := p.s.ReadNextFrame()
+	frame, n, err := p.r.ReadNextFrame()
 	if err != nil {
-		return nil, frame, err
+		return payloadFormat(0), frame, err
 	}
 
 	pf = payloadFormat(frame[0])
@@ -232,8 +232,11 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 	if length == 0 {
 		return pf, nil, nil
 	}
-	if length != n || length != len(frame[5:]) {
+	if length != uint32(n-5) {
 		panic("something is up here")
+	}
+	if length != uint32(len(frame[5:])) {
+		panic("something is really up here")
 	}
 	if length > uint32(maxMsgSize) {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)

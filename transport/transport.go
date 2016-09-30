@@ -174,7 +174,7 @@ type Stream struct {
 	recvCompress string
 	sendCompress string
 	buf          *recvBuffer
-	dec          io.Reader
+	dec          *recvBufferReader
 	fc           *inFlow
 	recvQuota    uint32
 	// The accumulated inbound quota pending for window update.
@@ -305,7 +305,7 @@ func (s *Stream) write(m recvMsg) {
 // The error is io.EOF when the stream is done or another non-nil error if
 // the stream broke.
 func (s *Stream) ReadNextFrame() (d []byte, n int, err error) {
-	d, n, err = s.dec.ReadNextFrame(p)
+	d, n, err = s.dec.ReadNextFrame()
 	if err != nil {
 		return
 	}
