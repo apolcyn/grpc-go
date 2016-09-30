@@ -38,7 +38,6 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -122,35 +121,29 @@ type recvBufferReader struct {
 	ctx    context.Context
 	goAway chan struct{}
 	recv   *recvBuffer
-	last   *bytes.Reader // Stores the remaining data in the previous calls.
 	err    error
 }
 
 // Read reads the next len(p) bytes from last. If last is drained, it tries to
 // read additional data from recv. It blocks if there no additional data available
 // in recv. If Read returns any non-nil error, it will continue to return that error.
-func (r *recvBufferReader) Read(p []byte) (n int, err error) {
+func (r *recvBufferReader) ReadNextFrame() (frame []byte, n int, err error) {
 	if r.err != nil {
-		return 0, r.err
+		return nil, 0, r.err
 	}
 	defer func() { r.err = err }()
-	if r.last != nil && r.last.Len() > 0 {
-		// Read remaining data left in last call.
-		return r.last.Read(p)
-	}
 	select {
 	case <-r.ctx.Done():
-		return 0, ContextErr(r.ctx.Err())
+		return nil, 0, ContextErr(r.ctx.Err())
 	case <-r.goAway:
-		return 0, ErrStreamDrain
+		return nil, 0, ErrStreamDrain
 	case i := <-r.recv.get():
 		r.recv.load()
 		m := i.(*recvMsg)
 		if m.err != nil {
-			return 0, m.err
+			return nil, 0, m.err
 		}
-		r.last = bytes.NewReader(m.data)
-		return r.last.Read(p)
+		return m.data, len(m.data), nil
 	}
 }
 
@@ -181,7 +174,7 @@ type Stream struct {
 	recvCompress string
 	sendCompress string
 	buf          *recvBuffer
-	dec          io.Reader
+	dec          *recvBufferReader
 	fc           *inFlow
 	recvQuota    uint32
 	// The accumulated inbound quota pending for window update.
@@ -311,8 +304,8 @@ func (s *Stream) write(m recvMsg) {
 // passes them into the decoder, which converts them into a gRPC message stream.
 // The error is io.EOF when the stream is done or another non-nil error if
 // the stream broke.
-func (s *Stream) Read(p []byte) (n int, err error) {
-	n, err = s.dec.Read(p)
+func (s *Stream) ReadNextFrame() (d []byte, n int, err error) {
+	d, n, err = s.dec.ReadNextFrame()
 	if err != nil {
 		return
 	}

@@ -204,14 +204,7 @@ const (
 
 // parser reads complete gRPC messages from the underlying reader.
 type parser struct {
-	// r is the underlying reader.
-	// See the comment on recvMsg for the permissible
-	// error types.
-	r io.Reader
-
-	// The header of a gRPC message. Find more detail
-	// at http://www.grpc.io/docs/guides/wire.html.
-	header [5]byte
+	r *transport.Stream
 }
 
 // recvMsg reads a complete gRPC message from the stream.
@@ -228,29 +221,28 @@ type parser struct {
 // that the underlying io.Reader must not return an incompatible
 // error.
 func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
-		return 0, nil, err
+	frame, n, err := p.r.ReadNextFrame()
+	if err != nil {
+		return payloadFormat(0), frame, err
 	}
 
-	pf = payloadFormat(p.header[0])
-	length := binary.BigEndian.Uint32(p.header[1:])
+	pf = payloadFormat(frame[0])
+	length := binary.BigEndian.Uint32(frame[1:5])
 
 	if length == 0 {
 		return pf, nil, nil
 	}
+	if length != uint32(n-5) {
+		panic("something is up here")
+	}
+	if length != uint32(len(frame[5:])) {
+		panic("something is really up here")
+	}
 	if length > uint32(maxMsgSize) {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
-	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
-	// of making it for each message:
-	msg = make([]byte, int(length))
-	if _, err := io.ReadFull(p.r, msg); err != nil {
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		return 0, nil, err
-	}
-	return pf, msg, nil
+
+	return pf, frame[5:], nil
 }
 
 // encode serializes msg and prepends the message header. If msg is nil, it
