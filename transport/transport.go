@@ -38,6 +38,7 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
+	"errors"
 	"bytes"
 	"fmt"
 	"io"
@@ -115,41 +116,27 @@ func (b *recvBuffer) get() <-chan item {
 	return b.c
 }
 
-// recvBufferReader implements io.Reader interface to read the data from
-// recvBuffer.
-type recvBufferReader struct {
-	ctx    context.Context
-	goAway chan struct{}
-	recv   *recvBuffer
-	last   *bytes.Reader // Stores the remaining data in the previous calls.
-	err    error
-}
-
-// Read reads the next len(p) bytes from last. If last is drained, it tries to
-// read additional data from recv. It blocks if there no additional data available
-// in recv. If Read returns any non-nil error, it will continue to return that error.
-func (r *recvBufferReader) Read(p []byte) (n int, err error) {
-	if r.err != nil {
-		return 0, r.err
+// Read reads the next data from received for the stream.
+// It blocks if there no data frame available.
+// If Read returns any non-nil error, it will continue to return that error.
+func (s *Stream) ReadNextFrame() (frameData []byte, err error) {
+	if s.previousReadError != nil {
+		return nil, s.previousReadError
 	}
-	defer func() { r.err = err }()
-	if r.last != nil && r.last.Len() > 0 {
-		// Read remaining data left in last call.
-		return r.last.Read(p)
-	}
+	defer func() { s.previousReadError = err }()
 	select {
-	case <-r.ctx.Done():
-		return 0, ContextErr(r.ctx.Err())
-	case <-r.goAway:
-		return 0, ErrStreamDrain
-	case i := <-r.recv.get():
-		r.recv.load()
-		m := i.(*recvMsg)
-		if m.err != nil {
-			return 0, m.err
+	case <-s.ctx.Done():
+		return nil, ContextErr(s.ctx.Err())
+	case <-s.goAway:
+		return nil, ErrStreamDrain
+	case i := <-s.buf.get():
+		s.buf.load()
+		msg := i.(*recvMsg)
+		if msg.err != nil {
+			return nil, msg.err
 		}
-		r.last = bytes.NewReader(m.data)
-		return r.last.Read(p)
+		s.windowHandler(len(msg.data))
+		return msg.data, nil
 	}
 }
 
@@ -180,7 +167,6 @@ type Stream struct {
 	recvCompress string
 	sendCompress string
 	buf          *recvBuffer
-	dec          io.Reader
 	fc           *inFlow
 	recvQuota    uint32
 	// The accumulated inbound quota pending for window update.
@@ -207,6 +193,8 @@ type Stream struct {
 	// the status received from the server.
 	statusCode codes.Code
 	statusDesc string
+	// Error that might have previously occurred when reading frames
+	previousReadError error
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -297,19 +285,6 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 
 func (s *Stream) write(m recvMsg) {
 	s.buf.put(&m)
-}
-
-// Read reads all the data available for this Stream from the transport and
-// passes them into the decoder, which converts them into a gRPC message stream.
-// The error is io.EOF when the stream is done or another non-nil error if
-// the stream broke.
-func (s *Stream) Read(p []byte) (n int, err error) {
-	n, err = s.dec.Read(p)
-	if err != nil {
-		return
-	}
-	s.windowHandler(n)
-	return
 }
 
 // The key to save transport.Stream in the context.

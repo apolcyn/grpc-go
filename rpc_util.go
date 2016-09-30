@@ -202,18 +202,6 @@ const (
 	compressionMade
 )
 
-// parser reads complete gRPC messages from the underlying reader.
-type parser struct {
-	// r is the underlying reader.
-	// See the comment on recvMsg for the permissible
-	// error types.
-	r io.Reader
-
-	// The header of a gRPC message. Find more detail
-	// at http://www.grpc.io/docs/guides/wire.html.
-	header [5]byte
-}
-
 // recvMsg reads a complete gRPC message from the stream.
 //
 // It returns the message and its payload (compression/encoding)
@@ -227,13 +215,19 @@ type parser struct {
 // No other error values or types must be returned, which also means
 // that the underlying io.Reader must not return an incompatible
 // error.
-func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
+func recvAndParseMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
+	frame, err := s.ReadNextFrame()
+	if err != nil {
 		return 0, nil, err
 	}
 
-	pf = payloadFormat(p.header[0])
-	length := binary.BigEndian.Uint32(p.header[1:])
+	// Parse the 5 byte header of a gRPC message. Find more detail
+	// at http://www.grpc.io/docs/guides/wire.html.
+	if len(frame) < 5 {
+		return 0, nil, io.ErrUnexpectedEOF
+	}
+	pf = payloadFormat(frame[0])
+	length := binary.BigEndian.Uint32(frame[1:5])
 
 	if length == 0 {
 		return pf, nil, nil
@@ -241,16 +235,12 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 	if length > uint32(maxMsgSize) {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
-	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
-	// of making it for each message:
-	msg = make([]byte, int(length))
-	if _, err := io.ReadFull(p.r, msg); err != nil {
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		return 0, nil, err
+	if length != uint32(len(frame[5:])) {
+		panic("something is up here")
+		return 0, nil, io.ErrUnexpectedEOF
 	}
-	return pf, msg, nil
+
+	return pf, frame[5:], nil
 }
 
 // encode serializes msg and prepends the message header. If msg is nil, it
@@ -311,8 +301,8 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 	return nil
 }
 
-func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
-	pf, d, err := p.recvMsg(maxMsgSize)
+func recv(c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
+	pf, d, err := recvAndParseMsg(s, maxMsgSize)
 	if err != nil {
 		return err
 	}

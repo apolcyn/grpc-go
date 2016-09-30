@@ -189,10 +189,6 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 		s.ctx = metadata.NewContext(s.ctx, state.mdata)
 	}
 
-	s.dec = &recvBufferReader{
-		ctx:  s.ctx,
-		recv: s.buf,
-	}
 	s.recvCompress = state.encoding
 	s.method = state.method
 	t.mu.Lock()
