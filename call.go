@@ -49,7 +49,7 @@ import (
 // On error, it returns the error and indicates whether the call should be retried.
 //
 // TODO(zhaoq): Check whether the received message sequence is valid.
-func recvResponse(dopts dialOptions, t transport.ClientTransport, c *callInfo, stream *transport.Stream, reply interface{}) error {
+func recvResponse(dopts dialOptions, t transport.ClientTransport, c *callInfo, stream *transport.Stream, reply interface{}, codec Codec) error {
 	// Try to acquire header metadata from the server if there is any.
 	var err error
 	defer func() {
@@ -65,7 +65,7 @@ func recvResponse(dopts dialOptions, t transport.ClientTransport, c *callInfo, s
 	}
 	p := &parser{r: stream}
 	for {
-		if err = recv(p, dopts.codec, stream, dopts.dc, reply, math.MaxInt32); err != nil {
+		if err = recv(p, codec, stream, dopts.dc, reply, math.MaxInt32); err != nil {
 			if err == io.EOF {
 				break
 			}
@@ -121,6 +121,10 @@ func Invoke(ctx context.Context, method string, args, reply interface{}, cc *Cli
 
 func invoke(ctx context.Context, method string, args, reply interface{}, cc *ClientConn, opts ...CallOption) (err error) {
 	c := defaultCallInfo
+        codec := cc.dopts.codec
+        if cc.dopts.newProtoCodecPerStream == true {
+          codec = NewProtoCodec()
+        }
 	for _, o := range opts {
 		if err := o.before(&c); err != nil {
 			return toRPCErr(err)
@@ -189,7 +193,7 @@ func invoke(ctx context.Context, method string, args, reply interface{}, cc *Cli
 		if c.traceInfo.tr != nil {
 			c.traceInfo.tr.LazyLog(&payload{sent: true, msg: args}, true)
 		}
-		stream, err = sendRequest(ctx, cc.dopts.codec, cc.dopts.cp, callHdr, t, args, topts)
+		stream, err = sendRequest(ctx, codec, cc.dopts.cp, callHdr, t, args, topts)
 		if err != nil {
 			if put != nil {
 				put()
@@ -206,7 +210,7 @@ func invoke(ctx context.Context, method string, args, reply interface{}, cc *Cli
 			}
 			return toRPCErr(err)
 		}
-		err = recvResponse(cc.dopts, t, &c, stream, reply)
+		err = recvResponse(cc.dopts, t, &c, stream, reply, codec)
 		if err != nil {
 			if put != nil {
 				put()

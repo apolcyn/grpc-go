@@ -109,6 +109,7 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 		t   transport.ClientTransport
 		s   *transport.Stream
 		put func()
+                codecForStream Codec
 	)
 	c := defaultCallInfo
 	for _, o := range opts {
@@ -179,11 +180,16 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 		}
 		break
 	}
+        if cc.dopts.newProtoCodecPerStream == true {
+           codecForStream = NewProtoCodec()
+        } else {
+           codecForStream = cc.dopts.codec
+        } 
 	cs := &clientStream{
 		opts:  opts,
 		c:     c,
 		desc:  desc,
-		codec: cc.dopts.codec,
+		codec: codecForStream,
 		cp:    cc.dopts.cp,
 		dc:    cc.dopts.dc,
 
@@ -305,7 +311,8 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 	if err != nil {
 		return Errorf(codes.Internal, "grpc: %v", err)
 	}
-	return cs.t.Write(cs.s, out, &transport.Options{Last: false})
+	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
+	return err
 }
 
 func (cs *clientStream) RecvMsg(m interface{}) (err error) {

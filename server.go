@@ -103,6 +103,7 @@ type Server struct {
 type options struct {
 	creds                credentials.TransportCredentials
 	codec                Codec
+        newProtoCodecPerStream bool
 	cp                   Compressor
 	dc                   Decompressor
 	maxMsgSize           int
@@ -193,9 +194,13 @@ func NewServer(opt ...ServerOption) *Server {
 		o(&opts)
 	}
 	if opts.codec == nil {
-		// Set the default codec.
-		opts.codec = protoCodec{}
-	}
+		// Normally codecs are shared across a server.
+                // In order to avoid sharing buffers across streams, create a new
+                // codec per stream if defaulting to protobuf codec
+                opts.newProtoCodecPerStream = true
+	} else {
+                opts.newProtoCodecPerStream = false
+        }
 	s := &Server{
 		lis:   make(map[net.Listener]bool),
 		opts:  opts,
@@ -504,12 +509,12 @@ func (s *Server) removeConn(c io.Closer) {
 	}
 }
 
-func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts *transport.Options) error {
+func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts *transport.Options, codec Codec) error {
 	var cbuf *bytes.Buffer
 	if cp != nil {
 		cbuf = new(bytes.Buffer)
 	}
-	p, err := encode(s.opts.codec, msg, cp, cbuf)
+	p, err := encode(codec, msg, cp, cbuf)
 	if err != nil {
 		// This typically indicates a fatal issue (e.g., memory
 		// corruption or hardware faults) the application program
@@ -524,6 +529,10 @@ func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Str
 }
 
 func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.Stream, srv *service, md *MethodDesc, trInfo *traceInfo) (err error) {
+	var codec = s.opts.codec
+	if s.opts.newProtoCodecPerStream == true {
+		codec = NewProtoCodec()
+	}
 	if trInfo != nil {
 		defer trInfo.tr.Finish()
 		trInfo.firstLine.client = false
@@ -600,7 +609,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 				statusCode = codes.Internal
 				statusDesc = fmt.Sprintf("grpc: server received a message of %d bytes exceeding %d limit", len(req), s.opts.maxMsgSize)
 			}
-			if err := s.opts.codec.Unmarshal(req, v); err != nil {
+			if err := codec.Unmarshal(req, v); err != nil {
 				return err
 			}
 			if trInfo != nil {
@@ -634,7 +643,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Last:  true,
 			Delay: false,
 		}
-		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
+		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts, codec); err != nil {
 			switch err := err.(type) {
 			case transport.ConnectionError:
 				// Nothing to do here.
@@ -655,14 +664,20 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 }
 
 func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transport.Stream, srv *service, sd *StreamDesc, trInfo *traceInfo) (err error) {
+        var codecForStream Codec
 	if s.opts.cp != nil {
 		stream.SetSendCompress(s.opts.cp.Type())
 	}
+        if s.opts.newProtoCodecPerStream == true {
+          codecForStream = NewProtoCodec()
+	} else {
+          codecForStream = s.opts.codec
+        }
 	ss := &serverStream{
 		t:          t,
 		s:          stream,
 		p:          &parser{r: stream},
-		codec:      s.opts.codec,
+		codec:      codecForStream,
 		cp:         s.opts.cp,
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,

@@ -86,6 +86,7 @@ type dialOptions struct {
 	unaryInt  UnaryClientInterceptor
 	streamInt StreamClientInterceptor
 	codec     Codec
+        newProtoCodecPerStream bool
 	cp        Compressor
 	dc        Decompressor
 	bs        backoffStrategy
@@ -265,8 +266,13 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.dopts.codec = protoCodec{}
-	}
+                // Normally codecs are shared across streams of a client connection.
+                // In order to avoid sharing buffers across streams, create a new
+                // proto codec per stream, if defaulting to the protobuf codec.
+                cc.dopts.newProtoCodecPerStream = true
+	} else {
+                cc.dopts.newProtoCodecPerStream = false
+        }
 	if cc.dopts.bs == nil {
 		cc.dopts.bs = DefaultBackoffConfig
 	}

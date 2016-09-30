@@ -62,14 +62,43 @@ type Codec interface {
 }
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
-type protoCodec struct{}
-
-func (protoCodec) Marshal(v interface{}) ([]byte, error) {
-	return proto.Marshal(v.(proto.Message))
+type protoCodec struct {
+	writeBuffer *proto.Buffer
+	lastWriteBuffer []byte
 }
 
-func (protoCodec) Unmarshal(data []byte, v interface{}) error {
-	return proto.Unmarshal(data, v.(proto.Message))
+func NewProtoCodec() *protoCodec {
+	return &protoCodec{
+		writeBuffer: proto.NewBuffer(nil),
+		lastWriteBuffer: make([]byte, 0),
+	}
+}
+
+func (c *protoCodec) updateWriteBuffer(capacity int) {
+	if len(c.lastWriteBuffer) >= capacity {
+		return
+	}
+	c.lastWriteBuffer = make([]byte, capacity)
+	return
+}
+
+func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
+	var protoMsg = v.(proto.Message)
+	var sizeNeeded = proto.Size(protoMsg)
+	c.updateWriteBuffer(sizeNeeded)
+	c.writeBuffer.SetBuf(c.lastWriteBuffer)
+	c.writeBuffer.Reset()
+	err := c.writeBuffer.Marshal(protoMsg)
+	if err != nil {
+		panic("something went wrong with unmarshaling")
+	}
+	var out = c.writeBuffer.Bytes()
+	c.writeBuffer.SetBuf(nil)
+	return out, err
+}
+
+func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
+        return proto.Unmarshal(data, v.(proto.Message))
 }
 
 func (protoCodec) String() string {
@@ -282,7 +311,7 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 		sizeLen    = 4
 	)
 
-	var buf = make([]byte, payloadLen+sizeLen+len(b))
+	var buf = make([]byte, payloadLen + sizeLen + len(b))
 
 	// Write payload format
 	if cp == nil {
