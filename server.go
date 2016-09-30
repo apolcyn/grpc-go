@@ -194,7 +194,7 @@ func NewServer(opt ...ServerOption) *Server {
 	}
 	if opts.codec == nil {
 		// Set the default codec.
-		opts.codec = protoCodec{}
+		opts.codec = NewProtoCodec()
 	}
 	s := &Server{
 		lis:   make(map[net.Listener]bool),

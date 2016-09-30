@@ -62,17 +62,25 @@ type Codec interface {
 }
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
-type protoCodec struct{}
+type protoCodec struct {
+	buffer *proto.Buffer
+}
 
-func (protoCodec) Marshal(v interface{}) ([]byte, error) {
+func NewProtoCodec() *protoCodec {
+	return &protoCodec{
+		buffer: proto.NewBuffer(nil),
+	}
+}
+
+func (*protoCodec) Marshal(v interface{}) ([]byte, error) {
 	return proto.Marshal(v.(proto.Message))
 }
 
-func (protoCodec) Unmarshal(data []byte, v interface{}) error {
+func (*protoCodec) Unmarshal(data []byte, v interface{}) error {
 	return proto.Unmarshal(data, v.(proto.Message))
 }
 
-func (protoCodec) String() string {
+func (*protoCodec) String() string {
 	return "proto"
 }
 
