@@ -518,7 +518,7 @@ func (t *http2Client) Close() (err error) {
 			s.headerDone = true
 		}
 		s.mu.Unlock()
-		s.write(recvMsg{err: ErrConnClosing})
+		s.write(RecvMsg{err: ErrConnClosing})
 	}
 	return
 }
@@ -728,7 +728,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 			s.statusDesc = err.Error()
 			close(s.done)
 			s.mu.Unlock()
-			s.write(recvMsg{err: io.EOF})
+			s.write(RecvMsg{err: io.EOF})
 			t.controlBuf.put(&resetStream{s.id, http2.ErrCodeFlowControl})
 			return
 		}
@@ -738,7 +738,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		// Can this copy be eliminated?
 		data := make([]byte, size)
 		copy(data, f.Data())
-		s.write(recvMsg{data: data})
+		s.write(RecvMsg{data: data})
 	}
 	// The server has closed the stream without sending trailers.  Record that
 	// the read direction is closed, and set the status appropriately.
@@ -753,7 +753,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		s.statusDesc = "server closed the stream without sending trailers"
 		close(s.done)
 		s.mu.Unlock()
-		s.write(recvMsg{err: io.EOF})
+		s.write(RecvMsg{err: io.EOF})
 	}
 }
 
@@ -780,7 +780,7 @@ func (t *http2Client) handleRSTStream(f *http2.RSTStreamFrame) {
 	s.statusDesc = fmt.Sprintf("stream terminated by RST_STREAM with error code: %d", f.ErrCode)
 	close(s.done)
 	s.mu.Unlock()
-	s.write(recvMsg{err: io.EOF})
+	s.write(RecvMsg{err: io.EOF})
 }
 
 func (t *http2Client) handleSettings(f *http2.SettingsFrame) {
@@ -860,7 +860,7 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 			s.headerDone = true
 		}
 		s.mu.Unlock()
-		s.write(recvMsg{err: state.err})
+		s.write(RecvMsg{err: state.err})
 		// Something wrong. Stops reading even when there is remaining.
 		return
 	}
@@ -891,7 +891,7 @@ func (t *http2Client) operateHeaders(frame *http2.MetaHeadersFrame) {
 	close(s.done)
 	s.state = streamDone
 	s.mu.Unlock()
-	s.write(recvMsg{err: io.EOF})
+	s.write(RecvMsg{err: io.EOF})
 }
 
 func handleMalformedHTTP2(s *Stream, err error) {
@@ -901,7 +901,7 @@ func handleMalformedHTTP2(s *Stream, err error) {
 		s.headerDone = true
 	}
 	s.mu.Unlock()
-	s.write(recvMsg{err: err})
+	s.write(RecvMsg{err: err})
 }
 
 // reader runs as a separate goroutine in charge of reading data from network

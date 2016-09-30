@@ -311,29 +311,48 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 	return nil
 }
 
-func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
-	pf, d, err := p.recvMsg(maxMsgSize)
-	if err != nil {
-		return err
-	}
-	if err := checkRecvPayload(pf, s.RecvCompress(), dc); err != nil {
-		return err
-	}
-	if pf == compressionMade {
-		d, err = dc.Do(bytes.NewReader(d))
-		if err != nil {
-			return Errorf(codes.Internal, "grpc: failed to decompress the received message %v", err)
+func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, protoMsg interface{}, maxMsgSize int) error {
+	select {
+	case <-s.Done():
+		return transport.ContextErr(s.Context().Err())
+	case <-s.GoAway():
+		return transport.ErrStreamDrain
+	case frame := <- s.GetRecvBuf().Get():
+	        s.GetRecvBuf().Load()
+		//TODO: extract header, and pass body to unmarshal
+		m := frame.(*transport.RecvMsg)
+		if m.Err() != nil {
+			return m.Err()
 		}
+		var pf = payloadFormat(m.Data()[0])
+		length := binary.BigEndian.Uint32(m.Data()[1:])
+		s.WindowHandler()(int(length))
+		if len(m.Data()[5:]) != int(length) {
+		        return Errorf(codes.Internal, "grpc: length mismatch. got %d", length)
+		}
+		if length == 0 {
+			return 	nil
+		}
+		if length > uint32(maxMsgSize) {
+		        return Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
+		}
+		if err := checkRecvPayload(pf, s.RecvCompress(), dc); err != nil {
+			return err
+		}
+	        var err error
+		var d = m.Data()[5:]
+		if pf == compressionMade {
+			panic("we shouldn't be in here i dont think")
+			d, err = dc.Do(bytes.NewReader(d))
+			if err != nil {
+				return Errorf(codes.Internal, "grpc: failed to decompress the received message %v", err)
+			}
+		}
+		if err := c.Unmarshal(d, protoMsg); err != nil {
+			return Errorf(codes.Internal, "grpc: failed to unmarshal the received message %v", err)
+		}
+		return nil
 	}
-	if len(d) > maxMsgSize {
-		// TODO: Revisit the error code. Currently keep it consistent with java
-		// implementation.
-		return Errorf(codes.Internal, "grpc: received a message of %d bytes exceeding %d limit", len(d), maxMsgSize)
-	}
-	if err := c.Unmarshal(d, m); err != nil {
-		return Errorf(codes.Internal, "grpc: failed to unmarshal the received message %v", err)
-	}
-	return nil
 }
 
 // rpcError defines the status from an RPC.

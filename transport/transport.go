@@ -52,9 +52,9 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// recvMsg represents the received msg from the transport. All transport
+// RecvMsg represents the received msg from the transport. All transport
 // protocol specific info has been removed.
-type recvMsg struct {
+type RecvMsg struct {
 	data []byte
 	// nil: received some data
 	// io.EOF: stream is completed. data is nil.
@@ -62,7 +62,15 @@ type recvMsg struct {
 	err error
 }
 
-func (*recvMsg) item() {}
+func (r *RecvMsg) Data() []byte {
+	return r.data
+}
+
+func (r *RecvMsg) Err() error {
+	return r.err
+}
+
+func (*RecvMsg) item() {}
 
 // All items in an out of a recvBuffer should be the same type.
 type item interface {
@@ -108,12 +116,20 @@ func (b *recvBuffer) load() {
 	}
 }
 
+func (b *recvBuffer) Load() {
+	b.load()
+}
+
 // get returns the channel that receives an item in the buffer.
 //
 // Upon receipt of an item, the caller should call load to send another
 // item onto the channel if there is any.
 func (b *recvBuffer) get() <-chan item {
 	return b.c
+}
+
+func (b *recvBuffer) Get() <-chan item {
+	return b.get()
 }
 
 // recvBufferReader implements io.Reader interface to read the data from
@@ -145,7 +161,7 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 		return 0, ErrStreamDrain
 	case i := <-r.recv.get():
 		r.recv.load()
-		m := i.(*recvMsg)
+		m := i.(*RecvMsg)
 		if m.err != nil {
 			return 0, m.err
 		}
@@ -208,6 +224,10 @@ type Stream struct {
 	// the status received from the server.
 	statusCode codes.Code
 	statusDesc string
+}
+
+func (s *Stream) GetRecvBuf() *recvBuffer {
+	return s.buf
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -303,8 +323,12 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 	return nil
 }
 
-func (s *Stream) write(m recvMsg) {
+func (s *Stream) write(m RecvMsg) {
 	s.buf.put(&m)
+}
+
+func (s *Stream) WindowHandler() func(int) {
+	return s.windowHandler
 }
 
 // Read reads all the data available for this Stream from the transport and
