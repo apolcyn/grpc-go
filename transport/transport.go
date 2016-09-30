@@ -136,6 +136,7 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 	defer func() { r.err = err }()
 	if r.last != nil && r.last.Len() > 0 {
 		// Read remaining data left in last call.
+		panic("we shouldn't ever be in here")
 		return r.last.Read(p)
 	}
 	select {
