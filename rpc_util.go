@@ -66,16 +66,19 @@ type Codec interface {
 type protoCodec struct {
 	readBuffer  *proto.Buffer
 	writeBuffer *proto.Buffer
+	mu          *sync.Mutex
 }
 
 func NewProtoCodec() *protoCodec {
 	return &protoCodec{
 		readBuffer:  proto.NewBuffer(nil),
 		writeBuffer: proto.NewBuffer(nil),
+		mu:          new(sync.Mutex),
 	}
 }
 
 var bufferPools = make(map[uint]*sync.Pool)
+var poolMu = new(sync.Mutex)
 
 func getCreator(minCap uint) func() interface{} {
 	return func() interface {} {
@@ -84,36 +87,54 @@ func getCreator(minCap uint) func() interface{} {
 }
 
 func AllocBuffer(cap int) []byte {
+	defer poolMu.Unlock()
+	poolMu.Lock()
 	var minCap = uint(cap)
 	_, ok := bufferPools[minCap]
 	if !ok {
 		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
 	}
-	return bufferPools[minCap].Get().([]byte)
+	var out = bufferPools[minCap].Get().([]byte)
+	if len(out) != int(minCap) {
+		panic("something is wrong with buffer pool")
+	}
+	return out[0:minCap]
 }
 
 func FreeBuffer(buf []byte) {
+	defer poolMu.Unlock()
+	poolMu.Lock()
 	var minCap = uint(len(buf))
 	_, ok := bufferPools[minCap]
 	if !ok {
 		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
 	}
-	bufferPools[minCap].Put(make([]byte, minCap))
+	bufferPools[minCap].Put(buf)
 }
 
 func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
+	defer c.mu.Unlock()
+	c.mu.Lock()
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
 	var buf = AllocBuffer(sizeNeeded)
+	if len(buf) != sizeNeeded {
+		panic("something is up here")
+	}
 	c.writeBuffer.SetBuf(buf)
 	c.writeBuffer.Reset()
 	err := c.writeBuffer.Marshal(protoMsg)
+	if err != nil {
+		panic("something went wrong with unmarshaling")
+	}
 	var out = c.writeBuffer.Bytes()
 	c.writeBuffer.SetBuf(nil)
 	return out, err
 }
 
 func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
+	defer c.mu.Unlock()
+	c.mu.Lock()
 	c.readBuffer.SetBuf(data)
 	err := c.readBuffer.Unmarshal(v.(proto.Message))
 	c.readBuffer.SetBuf(nil)
