@@ -66,14 +66,12 @@ type Codec interface {
 type protoCodec struct {
 	readBuffer  *proto.Buffer
 	writeBuffer *proto.Buffer
-	mu          *sync.Mutex
 }
 
 func NewProtoCodec() *protoCodec {
 	return &protoCodec{
 		readBuffer:  proto.NewBuffer(nil),
 		writeBuffer: proto.NewBuffer(nil),
-		mu:          new(sync.Mutex),
 	}
 }
 
@@ -113,8 +111,6 @@ func FreeBuffer(buf []byte) {
 }
 
 func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
-	defer c.mu.Unlock()
-	c.mu.Lock()
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
 	var buf = AllocBuffer(sizeNeeded)
@@ -133,8 +129,6 @@ func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
 }
 
 func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
-	defer c.mu.Unlock()
-	c.mu.Lock()
 	c.readBuffer.SetBuf(data)
 	err := c.readBuffer.Unmarshal(v.(proto.Message))
 	c.readBuffer.SetBuf(nil)
