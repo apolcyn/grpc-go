@@ -51,6 +51,7 @@ import (
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
+	"google.golang.org/grpc/buffers"
 )
 
 // http2Client implements the ClientTransport interface with HTTP2.
@@ -731,7 +732,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		// TODO(bradfitz, zhaoq): A copy is required here because there is no
 		// guarantee f.Data() is consumed before the arrival of next frame.
 		// Can this copy be eliminated?
-		data := make([]byte, size)
+		data := buffers.AllocBuffer(size)
 		copy(data, f.Data())
 		s.write(recvMsg{data: data})
 	}

@@ -46,6 +46,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/transport"
+	"google.golang.org/grpc/buffers"
 )
 
 // StreamHandler defines the handler called by gRPC server to complete the
@@ -313,7 +314,7 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
 	switch cs.codec.(type) {
 	case *protoCodec:
-		FreeBuffer(out)
+		buffers.FreeBuffer(out)
 	default:
 	}
 	return err
