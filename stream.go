@@ -179,11 +179,18 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 		}
 		break
 	}
+	var newCD Codec
+	switch cc.dopts.codec.(type) {
+	case *protoCodec:
+		newCD = NewProtoCodec()
+	default:
+		newCD = cc.dopts.codec
+	}
 	cs := &clientStream{
 		opts:  opts,
 		c:     c,
 		desc:  desc,
-		codec: cc.dopts.codec,
+		codec: newCD,
 		cp:    cc.dopts.cp,
 		dc:    cc.dopts.dc,
 

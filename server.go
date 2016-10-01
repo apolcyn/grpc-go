@@ -657,10 +657,17 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 	if s.opts.cp != nil {
 		stream.SetSendCompress(s.opts.cp.Type())
 	}
+	var newCD Codec
+	switch s.opts.codec.(type) {
+	case *protoCodec:
+		newCD = NewProtoCodec()
+	default:
+		newCD = s.opts.codec
+	}
 	ss := &serverStream{
 		t:          t,
 		s:          stream,
-		codec:      s.opts.codec,
+		codec:      newCD,
 		cp:         s.opts.cp,
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,
