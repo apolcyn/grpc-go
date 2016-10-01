@@ -42,6 +42,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
@@ -63,24 +64,63 @@ type Codec interface {
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct {
-	buffer *proto.Buffer
+	readBuffer  *proto.Buffer
+	writeBuffer *proto.Buffer
 }
 
 func NewProtoCodec() *protoCodec {
 	return &protoCodec{
-		buffer: proto.NewBuffer(nil),
+		readBuffer:  proto.NewBuffer(nil),
+		writeBuffer: proto.NewBuffer(nil),
 	}
 }
 
-func (*protoCodec) Marshal(v interface{}) ([]byte, error) {
-	return proto.Marshal(v.(proto.Message))
+var bufferPools = make(map[uint]*sync.Pool)
+
+func getCreator(minCap uint) func() interface{} {
+	return func() interface {} {
+		return make([]byte, minCap)
+	}
 }
 
-func (*protoCodec) Unmarshal(data []byte, v interface{}) error {
-	return proto.Unmarshal(data, v.(proto.Message))
+func AllocBuffer(cap int) []byte {
+	var minCap = uint(cap)
+	_, ok := bufferPools[minCap]
+	if !ok {
+		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+	}
+	return bufferPools[minCap].Get().([]byte)
 }
 
-func (*protoCodec) String() string {
+func FreeBuffer(buf []byte) {
+	var minCap = uint(len(buf))
+	_, ok := bufferPools[minCap]
+	if !ok {
+		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+	}
+	bufferPools[minCap].Put(make([]byte, minCap))
+}
+
+func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
+	var protoMsg = v.(proto.Message)
+	var sizeNeeded = proto.Size(protoMsg)
+	var buf = AllocBuffer(sizeNeeded)
+	c.writeBuffer.SetBuf(buf)
+	c.writeBuffer.Reset()
+	err := c.writeBuffer.Marshal(protoMsg)
+	var out = c.writeBuffer.Bytes()
+	c.writeBuffer.SetBuf(nil)
+	return out, err
+}
+
+func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
+	c.readBuffer.SetBuf(data)
+	err := c.readBuffer.Unmarshal(v.(proto.Message))
+	c.readBuffer.SetBuf(nil)
+	return err
+}
+
+func (protoCodec) String() string {
 	return "proto"
 }
 
@@ -244,7 +284,6 @@ func recvAndParseMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
 	if length != uint32(len(frame[5:])) {
-		panic("something is up here")
 		return 0, nil, io.ErrUnexpectedEOF
 	}
 

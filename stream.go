@@ -303,7 +303,13 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 	if err != nil {
 		return Errorf(codes.Internal, "grpc: %v", err)
 	}
-	return cs.t.Write(cs.s, out, &transport.Options{Last: false})
+	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
+	switch cs.codec.(type) {
+	case *protoCodec:
+		FreeBuffer(out)
+	default:
+	}
+	return err
 }
 
 func (cs *clientStream) RecvMsg(m interface{}) (err error) {
