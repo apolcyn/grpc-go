@@ -39,38 +39,64 @@ import (
 	"sync"
 )
 
-var bufferPools = make(map[uint]*sync.Pool)
-var poolMu = new(sync.Mutex)
-
 func getCreator(minCap uint) func() interface{} {
 	return func() interface {} {
 		return make([]byte, minCap)
 	}
 }
 
-func AllocBuffer(cap int) []byte {
-	defer poolMu.Unlock()
-	poolMu.Lock()
-	var minCap = uint(cap)
-	_, ok := bufferPools[minCap]
-	if !ok {
-		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+type BufferPool interface {
+	GetBuf(size uint) []byte
+	PutBuf([]byte)
+}
+
+type protobufBufferPool struct {
+	bufferPools map[uint]*sync.Pool
+	poolMu *sync.Mutex
+}
+
+func NewProtobufBufferPool() BufferPool {
+	return &protobufBufferPool {
+		bufferPools: make(map[uint]*sync.Pool),
+		poolMu: new(sync.Mutex),
 	}
-	var out = bufferPools[minCap].Get().([]byte)
+}
+
+func (p *protobufBufferPool) GetBuf(minCap uint) []byte {
+	defer p.poolMu.Unlock()
+	p.poolMu.Lock()
+	_, ok := p.bufferPools[minCap]
+	if !ok {
+		p.bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+	}
+	var out = p.bufferPools[minCap].Get().([]byte)
 	if len(out) != int(minCap) {
 		panic("something is wrong with buffer pool")
 	}
 	return out[0:minCap]
 }
 
-func FreeBuffer(buf []byte) {
-	defer poolMu.Unlock()
-	poolMu.Lock()
+func (p *protobufBufferPool) PutBuf(buf []byte) {
+	defer p.poolMu.Unlock()
+	p.poolMu.Lock()
 	var minCap = uint(len(buf))
-	_, ok := bufferPools[minCap]
+	_, ok := p.bufferPools[minCap]
 	if !ok {
-		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+		p.bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
 	}
-	bufferPools[minCap].Put(buf)
+	p.bufferPools[minCap].Put(buf)
 }
 
+type noCacheBufferPool struct {}
+
+func NewDefaultBufferPool() BufferPool {
+	return &noCacheBufferPool{}
+}
+
+func (p *noCacheBufferPool) GetBuf(minCap uint) []byte {
+	return make([]byte, minCap)
+}
+
+func (p *noCacheBufferPool) PutBuf([]byte) {
+	return
+}
