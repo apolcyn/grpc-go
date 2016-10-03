@@ -200,7 +200,9 @@ func NewServer(opt ...ServerOption) *Server {
 		var newBufferPool = buffers.NewProtobufBufferPool()
 		opts.codec = NewProtoCodec(newBufferPool)
 		bufferPool = newBufferPool
-
+	} else {
+		// TODO: apolcyn, this too
+		panic("shouldne be here")
 	}
 	s := &Server{
 		lis:        make(map[net.Listener]bool),
@@ -402,7 +404,14 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, s.bufferPool)
+	var bufferPool buffers.BufferPool = nil
+	switch s.opts.codec.(type) {
+	case *protoCodec:
+		bufferPool = buffers.NewProtobufBufferPool()
+	default:
+		panic("shouldn be here, not using proto codec for some reason")
+	}
+	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, bufferPool)
 	if err != nil {
 		s.mu.Lock()
 		s.errorf("NewServerTransport(%q) failed: %v", c.RemoteAddr(), err)
@@ -447,6 +456,8 @@ var _ http.Handler = (*Server)(nil)
 //
 // conn is the *tls.Conn that's already been authenticated.
 func (s *Server) serveUsingHandler(conn net.Conn) {
+	// TODO: apolcyn, this too
+	panic("shouldnt be here")
 	if !s.addConn(conn) {
 		conn.Close()
 		return
@@ -607,7 +618,8 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 				statusCode = codes.Internal
 				statusDesc = fmt.Sprintf("grpc: server received a message of %d bytes exceeding %d limit", len(req), s.opts.maxMsgSize)
 			}
-			if err := s.opts.codec.Unmarshal(req, v); err != nil {
+			var codec = createNewProtoCodec(s.opts.codec, t.BufferPool())
+			if err := codec.Unmarshal(req, v); err != nil {
 				return err
 			}
 			if trInfo != nil {
@@ -661,21 +673,25 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 	}
 }
 
+func createNewProtoCodec(current Codec, pool buffers.BufferPool) Codec {
+	switch current.(type) {
+	case *protoCodec:
+		return NewProtoCodec(pool)
+	default:
+		panic("not using proto codec for some reason")
+		//newCD = s.opts.codec
+	}
+	return nil
+}
+
 func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transport.Stream, srv *service, sd *StreamDesc, trInfo *traceInfo) (err error) {
 	if s.opts.cp != nil {
 		stream.SetSendCompress(s.opts.cp.Type())
 	}
-	var newCD Codec
-	switch s.opts.codec.(type) {
-	case *protoCodec:
-		newCD = NewProtoCodec(s.bufferPool)
-	default:
-		newCD = s.opts.codec
-	}
 	ss := &serverStream{
 		t:          t,
 		s:          stream,
-		codec:      newCD,
+		codec:      createNewProtoCodec(s.opts.codec, t.BufferPool()),
 		cp:         s.opts.cp,
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,

@@ -45,6 +45,7 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	testpb "google.golang.org/grpc/benchmark/grpc_testing"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/grpclog"
 )
@@ -55,6 +56,11 @@ var (
 )
 
 type byteBufCodec struct {
+}
+
+func (byteBufCodec) BufferPool() buffers.BufferPool {
+	// TODO: apolcyn, this too
+	return nil
 }
 
 func (byteBufCodec) Marshal(v interface{}) ([]byte, error) {
