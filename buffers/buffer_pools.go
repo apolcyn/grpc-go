@@ -57,8 +57,42 @@ var sizesCount = 20
 
 type protobufBufferPool struct {
 	bufferPoolSizes []int
-	bufferPools     []*sync.Pool
+	bufferPools     []*stack
 	poolMu          *sync.Mutex
+}
+
+type stack struct {
+	index   int
+	buffers [][]byte
+}
+
+func (s *stack) push(buffer []byte) {
+	if s.index > len(s.buffers)+1 {
+		panic("attempt to grow")
+	}
+	s.buffers[s.index] = buffer
+	s.index++
+}
+
+func (s *stack) pop() []byte {
+	if s.index <= 0 {
+		panic("shrinking too far")
+	}
+	s.index--
+	out := s.buffers[s.index]
+	s.buffers[s.index] = nil
+	return out
+}
+
+func newBufferStack(int bufSize) *stack {
+	st := &stack{
+		index:   0,
+		buffers: make([][]byte, 100),
+	}
+	for i := 0; i < 100; i++ {
+		st.push(make([]byte, bufSize))
+	}
+	return st
 }
 
 func NewProtobufBufferPool() BufferPool {
@@ -69,7 +103,7 @@ func NewProtobufBufferPool() BufferPool {
 
 	return &protobufBufferPool{
 		bufferPoolSizes: sizes,
-		bufferPools:     make([]*sync.Pool, sizesCount),
+		bufferPools:     make([]*stack, sizesCount),
 		poolMu:          new(sync.Mutex),
 	}
 }
@@ -93,13 +127,13 @@ func (p *protobufBufferPool) GetBuf(minCap uint) []byte {
 	p.poolMu.Lock()
 	var index, pool = p.getPool(minCap)
 	if pool == nil {
-		p.bufferPools[index] = &sync.Pool{New: getCreator(minCap)}
+		p.bufferPools[index] = newBufferStack(minCap)
 	}
-	var out = p.bufferPools[index].Get().([]byte)
+	var out = p.bufferPools[index].pop()
 	if len(out) < int(minCap) {
 		panic("something is wrong with buffer pool")
 	}
-	return out[0:minCap]
+	return out
 }
 
 func (p *protobufBufferPool) PutBuf(buf []byte) {
@@ -108,9 +142,9 @@ func (p *protobufBufferPool) PutBuf(buf []byte) {
 	var minCap = uint(len(buf))
 	var index, pool = p.getPool(minCap)
 	if pool == nil {
-		p.bufferPools[index] = &sync.Pool{New: getCreator(minCap)}
+		p.bufferPools[index] = newBufferStack(minCap)
 	}
-	p.bufferPools[index].Put(buf)
+	p.bufferPools[index].push(buf)
 }
 
 type noCacheBufferPool struct{}
