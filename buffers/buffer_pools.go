@@ -56,31 +56,31 @@ type BufferPool interface {
 var sizesCount = 20
 
 type protobufBufferPool struct {
-	bufferPoolSizes []uint
+	bufferPoolSizes []int
 	bufferPools     []*sync.Pool
 	poolMu          *sync.Mutex
 }
 
 func NewProtobufBufferPool() BufferPool {
-	sizes = make([]int, sizesCount)
+	sizes := make([]int, sizesCount)
 	for i := 0; i < len(sizes); i++ {
 		sizes[i] = -1
 	}
 
 	return &protobufBufferPool{
 		bufferPoolSizes: sizes,
-		bufferPools:     make([]*sync.Pool, poolTableSize),
+		bufferPools:     make([]*sync.Pool, sizesCount),
 		poolMu:          new(sync.Mutex),
 	}
 }
 
 func (p *protobufBufferPool) getPool(minCap uint) (int, *sync.Pool) {
 	for i := 0; i < sizesCount; i++ {
-		if p.bufferPoolSizes[i] == minCap {
+		if p.bufferPoolSizes[i] == int(minCap) {
 			return i, p.bufferPools[i]
 		}
 		if p.bufferPoolSizes[i] == -1 {
-			p.bufferPoolSizes[i] = minCap
+			p.bufferPoolSizes[i] = int(minCap)
 			return i, nil
 		}
 	}
