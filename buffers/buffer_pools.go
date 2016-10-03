@@ -36,6 +36,7 @@
 package buffers
 
 import (
+	"strconv"
 	"sync"
 )
 
@@ -52,27 +53,50 @@ type BufferPool interface {
 	PutBuf([]byte)
 }
 
+var sizesCount = 20
+
 type protobufBufferPool struct {
-	bufferPools map[uint]*sync.Pool
-	poolMu      *sync.Mutex
+	bufferPoolSizes []uint
+	bufferPools     []*sync.Pool
+	poolMu          *sync.Mutex
 }
 
 func NewProtobufBufferPool() BufferPool {
-	return &protobufBufferPool{
-		bufferPools: make(map[uint]*sync.Pool),
-		poolMu:      new(sync.Mutex),
+	sizes = make([]int, sizesCount)
+	for i := 0; i < len(sizes); i++ {
+		sizes[i] = -1
 	}
+
+	return &protobufBufferPool{
+		bufferPoolSizes: sizes,
+		bufferPools:     make([]*sync.Pool, poolTableSize),
+		poolMu:          new(sync.Mutex),
+	}
+}
+
+func (p *protobufBufferPool) getPool(minCap uint) (int, *sync.Pool) {
+	for i := 0; i < sizesCount; i++ {
+		if p.bufferPoolSizes[i] == minCap {
+			return i, p.bufferPools[i]
+		}
+		if p.bufferPoolSizes[i] == -1 {
+			p.bufferPoolSizes[i] = minCap
+			return i, nil
+		}
+	}
+	panic("asking for too a pool size thats not cached" + strconv.FormatUint(uint64(minCap), 10))
+	return -1, nil
 }
 
 func (p *protobufBufferPool) GetBuf(minCap uint) []byte {
 	defer p.poolMu.Unlock()
 	p.poolMu.Lock()
-	_, ok := p.bufferPools[minCap]
-	if !ok {
-		p.bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+	var index, pool = p.getPool(minCap)
+	if pool == nil {
+		p.bufferPools[index] = &sync.Pool{New: getCreator(minCap)}
 	}
-	var out = p.bufferPools[minCap].Get().([]byte)
-	if len(out) != int(minCap) {
+	var out = p.bufferPools[index].Get().([]byte)
+	if len(out) < int(minCap) {
 		panic("something is wrong with buffer pool")
 	}
 	return out[0:minCap]
@@ -82,11 +106,11 @@ func (p *protobufBufferPool) PutBuf(buf []byte) {
 	defer p.poolMu.Unlock()
 	p.poolMu.Lock()
 	var minCap = uint(len(buf))
-	_, ok := p.bufferPools[minCap]
-	if !ok {
-		p.bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+	var index, pool = p.getPool(minCap)
+	if pool == nil {
+		p.bufferPools[index] = &sync.Pool{New: getCreator(minCap)}
 	}
-	p.bufferPools[minCap].Put(buf)
+	p.bufferPools[index].Put(buf)
 }
 
 type noCacheBufferPool struct{}
