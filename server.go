@@ -591,6 +591,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		statusDesc := ""
 		df := func(v interface{}) error {
 			if pf == compressionMade {
+				panic("compression mode is on")
 				var err error
 				req, err = s.opts.dc.Do(bytes.NewReader(req))
 				if err != nil {
