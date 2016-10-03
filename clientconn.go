@@ -266,9 +266,13 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.dopts.codec = NewProtoCodec(buffers.GlobalProtoBufferPool)
+		var bufferPool = buffers.NewProtobufBufferPool()
+		cc.dopts.codec = NewProtoCodec(bufferPool)
 		//setting this here because its an optimization tied to the proto codec
-		cc.dopts.copts.BufferPool = buffers.GlobalProtoBufferPool
+		cc.dopts.copts.BufferPool = bufferPool
+	} else {
+		// TODO: apolcyn, this part too
+		panic("non proto codec not implemented")
 	}
 	if cc.dopts.bs == nil {
 		cc.dopts.bs = DefaultBackoffConfig

@@ -197,8 +197,9 @@ func NewServer(opt ...ServerOption) *Server {
 	var bufferPool = buffers.NewDefaultBufferPool()
 	if opts.codec == nil {
 		// Set the default codec.
-		opts.codec = NewProtoCodec(buffers.GlobalProtoBufferPool)
-		bufferPool = buffers.GlobalProtoBufferPool
+		var newBufferPool = buffers.NewProtobufBufferPool()
+		opts.codec = NewProtoCodec(newBufferPool)
+		bufferPool = newBufferPool
 
 	}
 	s := &Server{
