@@ -43,6 +43,7 @@ import (
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/transport"
@@ -265,7 +266,9 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.dopts.codec = NewProtoCodec()
+		cc.dopts.codec = NewProtoCodec(buffers.GlobalProtoBufferPool)
+		//setting this here because its an optimization tied to the proto codec
+		cc.dopts.copts.BufferPool = buffers.GlobalProtoBufferPool
 	}
 	if cc.dopts.bs == nil {
 		cc.dopts.bs = DefaultBackoffConfig

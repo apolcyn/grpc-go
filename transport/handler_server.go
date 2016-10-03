@@ -49,6 +49,7 @@ import (
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -371,6 +372,11 @@ func (ht *serverHandlerTransport) runStream() {
 
 func (ht *serverHandlerTransport) Drain() {
 	panic("Drain() is not implemented")
+}
+
+// TODO: apolcyn, how should this work
+func (ht *serverHandlerTransport) BufferPool() buffers.BufferPool {
+	panic("shouldn't be using this")
 }
 
 // mapRecvMsgError returns the non-nil err into the appropriate

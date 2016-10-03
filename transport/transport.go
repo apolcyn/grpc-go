@@ -46,6 +46,7 @@ import (
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
@@ -320,8 +321,8 @@ const (
 
 // NewServerTransport creates a ServerTransport with conn or non-nil error
 // if it fails.
-func NewServerTransport(protocol string, conn net.Conn, maxStreams uint32, authInfo credentials.AuthInfo) (ServerTransport, error) {
-	return newHTTP2Server(conn, maxStreams, authInfo)
+func NewServerTransport(protocol string, conn net.Conn, maxStreams uint32, authInfo credentials.AuthInfo, bufferPool buffers.BufferPool) (ServerTransport, error) {
+	return newHTTP2Server(conn, maxStreams, authInfo, bufferPool)
 }
 
 // ConnectOptions covers all relevant options for dialing a server.
@@ -334,6 +335,8 @@ type ConnectOptions struct {
 	PerRPCCredentials []credentials.PerRPCCredentials
 	// TransportCredentials stores the Authenticator required to setup a client connection.
 	TransportCredentials credentials.TransportCredentials
+	// TODO: apolcyn where should this go, placed here because options is also where proto codec is picked
+	BufferPool buffers.BufferPool
 }
 
 // NewClientTransport establishes the transport with the required ConnectOptions
@@ -414,6 +417,8 @@ type ClientTransport interface {
 	// receives the draining signal from the server (e.g., GOAWAY frame in
 	// HTTP/2).
 	GoAway() <-chan struct{}
+	//TODO: apolcyn, where should this go
+	BufferPool() buffers.BufferPool
 }
 
 // ServerTransport is the common interface for all gRPC server-side transport
@@ -448,6 +453,8 @@ type ServerTransport interface {
 
 	// Drain notifies the client this ServerTransport stops accepting new RPCs.
 	Drain()
+	//TODO: apolcyn, where should this go
+	BufferPool() buffers.BufferPool
 }
 
 // streamErrorf creates an StreamError with the specified error code and description.

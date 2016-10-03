@@ -43,10 +43,10 @@ import (
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/transport"
-	"google.golang.org/grpc/buffers"
 )
 
 // StreamHandler defines the handler called by gRPC server to complete the
@@ -183,17 +183,18 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 	var newCD Codec
 	switch cc.dopts.codec.(type) {
 	case *protoCodec:
-		newCD = NewProtoCodec()
+		newCD = NewProtoCodec(cc.dopts.copts.BufferPool)
 	default:
 		newCD = cc.dopts.codec
 	}
 	cs := &clientStream{
-		opts:  opts,
-		c:     c,
-		desc:  desc,
-		codec: newCD,
-		cp:    cc.dopts.cp,
-		dc:    cc.dopts.dc,
+		opts:       opts,
+		c:          c,
+		desc:       desc,
+		codec:      newCD,
+		cp:         cc.dopts.cp,
+		dc:         cc.dopts.dc,
+		bufferPool: t.BufferPool(),
 
 		put: put,
 		t:   t,
@@ -251,7 +252,8 @@ type clientStream struct {
 	closed bool
 	// trInfo.tr is set when the clientStream is created (if EnableTracing is true),
 	// and is set to nil when the clientStream's finish method is called.
-	trInfo traceInfo
+	trInfo     traceInfo
+	bufferPool buffers.BufferPool
 }
 
 func (cs *clientStream) Context() context.Context {
@@ -312,11 +314,8 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 		return Errorf(codes.Internal, "grpc: %v", err)
 	}
 	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
-	switch cs.codec.(type) {
-	case *protoCodec:
-		buffers.FreeBuffer(out)
-	default:
-	}
+	// possibly free buffer, for reuse, after it's been written out
+	cs.bufferPool.PutBuf(out)
 	return err
 }
 
@@ -445,7 +444,8 @@ type serverStream struct {
 	statusDesc string
 	trInfo     *traceInfo
 
-	mu sync.Mutex // protects trInfo.tr after the service handler runs.
+	mu         sync.Mutex // protects trInfo.tr after the service handler runs.
+	bufferPool buffers.BufferPool
 }
 
 func (ss *serverStream) Context() context.Context {
@@ -492,6 +492,8 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false}); err != nil {
 		return toRPCErr(err)
 	}
+	// possibly freee buffer after its been written out
+	ss.bufferPool.PutBuf(out)
 	return nil
 }
 

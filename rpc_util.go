@@ -45,10 +45,10 @@ import (
 
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/transport"
-	"google.golang.org/grpc/buffers"
 )
 
 // Codec defines the interface gRPC uses to encode and decode messages.
@@ -66,19 +66,21 @@ type Codec interface {
 type protoCodec struct {
 	readBuffer  *proto.Buffer
 	writeBuffer *proto.Buffer
+	bufferPool  buffers.BufferPool
 }
 
-func NewProtoCodec() *protoCodec {
+func NewProtoCodec(bufferPool buffers.BufferPool) *protoCodec {
 	return &protoCodec{
 		readBuffer:  proto.NewBuffer(nil),
 		writeBuffer: proto.NewBuffer(nil),
+		bufferPool:  bufferPool,
 	}
 }
 
 func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
-	var buf = buffers.AllocBuffer(sizeNeeded)
+	var buf = c.bufferPool.GetBuf(uint(sizeNeeded))
 	if len(buf) != sizeNeeded {
 		panic("something is up here")
 	}
@@ -97,6 +99,8 @@ func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
 	c.readBuffer.SetBuf(data)
 	err := c.readBuffer.Unmarshal(v.(proto.Message))
 	c.readBuffer.SetBuf(nil)
+	// possibly free buffer for reuse
+	c.bufferPool.PutBuf(data)
 	return err
 }
 
@@ -350,7 +354,6 @@ func recv(c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSi
 	if err := c.Unmarshal(d, m); err != nil {
 		return Errorf(codes.Internal, "grpc: failed to unmarshal the received message %v", err)
 	}
-	buffers.FreeBuffer(d)
 	return nil
 }
 

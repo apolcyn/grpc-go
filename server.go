@@ -49,6 +49,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/trace"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
@@ -95,9 +96,10 @@ type Server struct {
 	drain bool
 	// A CondVar to let GracefulStop() blocks until all the pending RPCs are finished
 	// and all the transport goes away.
-	cv     *sync.Cond
-	m      map[string]*service // service name -> service info
-	events trace.EventLog
+	cv         *sync.Cond
+	m          map[string]*service // service name -> service info
+	events     trace.EventLog
+	bufferPool buffers.BufferPool
 }
 
 type options struct {
@@ -192,15 +194,19 @@ func NewServer(opt ...ServerOption) *Server {
 	for _, o := range opt {
 		o(&opts)
 	}
+	var bufferPool = buffers.NewDefaultBufferPool()
 	if opts.codec == nil {
 		// Set the default codec.
-		opts.codec = NewProtoCodec()
+		opts.codec = NewProtoCodec(buffers.GlobalProtoBufferPool)
+		bufferPool = buffers.GlobalProtoBufferPool
+
 	}
 	s := &Server{
-		lis:   make(map[net.Listener]bool),
-		opts:  opts,
-		conns: make(map[io.Closer]bool),
-		m:     make(map[string]*service),
+		lis:        make(map[net.Listener]bool),
+		opts:       opts,
+		conns:      make(map[io.Closer]bool),
+		m:          make(map[string]*service),
+		bufferPool: bufferPool,
 	}
 	s.cv = sync.NewCond(&s.mu)
 	if EnableTracing {
@@ -395,7 +401,7 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo)
+	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, s.bufferPool)
 	if err != nil {
 		s.mu.Lock()
 		s.errorf("NewServerTransport(%q) failed: %v", c.RemoteAddr(), err)
@@ -660,7 +666,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 	var newCD Codec
 	switch s.opts.codec.(type) {
 	case *protoCodec:
-		newCD = NewProtoCodec()
+		newCD = NewProtoCodec(s.bufferPool)
 	default:
 		newCD = s.opts.codec
 	}
@@ -672,6 +678,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,
 		trInfo:     trInfo,
+		bufferPool: t.BufferPool(),
 	}
 	if ss.cp != nil {
 		ss.cbuf = new(bytes.Buffer)

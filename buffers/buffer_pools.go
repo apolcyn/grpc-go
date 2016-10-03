@@ -39,8 +39,10 @@ import (
 	"sync"
 )
 
+var GlobalProtoBufferPool = NewProtobufBufferPool()
+
 func getCreator(minCap uint) func() interface{} {
-	return func() interface {} {
+	return func() interface{} {
 		return make([]byte, minCap)
 	}
 }
@@ -52,13 +54,13 @@ type BufferPool interface {
 
 type protobufBufferPool struct {
 	bufferPools map[uint]*sync.Pool
-	poolMu *sync.Mutex
+	poolMu      *sync.Mutex
 }
 
 func NewProtobufBufferPool() BufferPool {
-	return &protobufBufferPool {
+	return &protobufBufferPool{
 		bufferPools: make(map[uint]*sync.Pool),
-		poolMu: new(sync.Mutex),
+		poolMu:      new(sync.Mutex),
 	}
 }
 
@@ -87,7 +89,7 @@ func (p *protobufBufferPool) PutBuf(buf []byte) {
 	p.bufferPools[minCap].Put(buf)
 }
 
-type noCacheBufferPool struct {}
+type noCacheBufferPool struct{}
 
 func NewDefaultBufferPool() BufferPool {
 	return &noCacheBufferPool{}

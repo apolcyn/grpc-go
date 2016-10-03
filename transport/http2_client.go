@@ -46,12 +46,12 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
+	"google.golang.org/grpc/buffers"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/buffers"
 )
 
 // http2Client implements the ClientTransport interface with HTTP2.
@@ -106,6 +106,7 @@ type http2Client struct {
 	goAwayID uint32
 	// prevGoAway ID records the Last-Stream-ID in the previous GOAway frame.
 	prevGoAwayID uint32
+	bufferPool   buffers.BufferPool
 }
 
 func dial(fn func(context.Context, string) (net.Conn, error), ctx context.Context, addr string) (net.Conn, error) {
@@ -197,6 +198,7 @@ func newHTTP2Client(ctx context.Context, addr string, opts ConnectOptions) (_ Cl
 		creds:           opts.PerRPCCredentials,
 		maxStreams:      math.MaxInt32,
 		streamSendQuota: defaultWindowSize,
+		bufferPool:      opts.BufferPool,
 	}
 	// Start the reader goroutine for incoming message. Each transport has
 	// a dedicated goroutine which reads HTTP2 frame from network. Then it
@@ -234,6 +236,10 @@ func newHTTP2Client(ctx context.Context, addr string, opts ConnectOptions) (_ Cl
 	go t.controller()
 	t.writableChan <- 0
 	return t, nil
+}
+
+func (t *http2Client) BufferPool() buffers.BufferPool {
+	return t.bufferPool
 }
 
 func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
@@ -732,7 +738,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		// TODO(bradfitz, zhaoq): A copy is required here because there is no
 		// guarantee f.Data() is consumed before the arrival of next frame.
 		// Can this copy be eliminated?
-		data := buffers.AllocBuffer(size)
+		data := t.bufferPool.GetBuf(uint(size))
 		copy(data, f.Data())
 		s.write(recvMsg{data: data})
 	}
