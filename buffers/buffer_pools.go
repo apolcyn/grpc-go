@@ -84,7 +84,7 @@ func (s *stack) pop() []byte {
 	return out
 }
 
-func newBufferStack(int bufSize) *stack {
+func newBufferStack(bufSize int) *stack {
 	st := &stack{
 		index:   0,
 		buffers: make([][]byte, 100),
@@ -108,7 +108,7 @@ func NewProtobufBufferPool() BufferPool {
 	}
 }
 
-func (p *protobufBufferPool) getPool(minCap uint) (int, *sync.Pool) {
+func (p *protobufBufferPool) getPool(minCap uint) (int, *stack) {
 	for i := 0; i < sizesCount; i++ {
 		if p.bufferPoolSizes[i] == int(minCap) {
 			return i, p.bufferPools[i]
@@ -127,7 +127,7 @@ func (p *protobufBufferPool) GetBuf(minCap uint) []byte {
 	p.poolMu.Lock()
 	var index, pool = p.getPool(minCap)
 	if pool == nil {
-		p.bufferPools[index] = newBufferStack(minCap)
+		p.bufferPools[index] = newBufferStack(int(minCap))
 	}
 	var out = p.bufferPools[index].pop()
 	if len(out) < int(minCap) {
@@ -142,7 +142,8 @@ func (p *protobufBufferPool) PutBuf(buf []byte) {
 	var minCap = uint(len(buf))
 	var index, pool = p.getPool(minCap)
 	if pool == nil {
-		p.bufferPools[index] = newBufferStack(minCap)
+		panic("putting a buffer back into an unkown pool")
+		p.bufferPools[index] = newBufferStack(int(minCap))
 	}
 	p.bufferPools[index].push(buf)
 }
