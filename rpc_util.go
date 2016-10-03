@@ -346,6 +346,7 @@ func recv(c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSi
 		return err
 	}
 	if pf == compressionMade {
+		panic("shouldn't be in here")
 		d, err = dc.Do(bytes.NewReader(d))
 		if err != nil {
 			return Errorf(codes.Internal, "grpc: failed to decompress the received message %v", err)
