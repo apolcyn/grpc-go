@@ -87,9 +87,9 @@ func (s *stack) pop() []byte {
 func newBufferStack(bufSize int) *stack {
 	st := &stack{
 		index:   0,
-		buffers: make([][]byte, 100),
+		buffers: make([][]byte, 202),
 	}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 202; i++ {
 		st.push(make([]byte, bufSize))
 	}
 	return st

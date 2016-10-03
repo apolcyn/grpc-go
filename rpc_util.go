@@ -308,7 +308,7 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 		sizeLen    = 4
 	)
 
-	var buf = make([]byte, payloadLen+sizeLen+len(b))
+	var buf = c.BufferPool().GetBuf(uint(payloadLen + sizeLen + len(b)))
 
 	// Write payload format
 	if cp == nil {
@@ -320,6 +320,7 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 	binary.BigEndian.PutUint32(buf[1:], uint32(length))
 	// Copy encoded msg to buf
 	copy(buf[5:], b)
+	c.BufferPool().PutBuf(b)
 
 	return buf, nil
 }
