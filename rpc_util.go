@@ -79,7 +79,7 @@ var bufferPools = make(map[uint]*sync.Pool)
 var poolMu = new(sync.Mutex)
 
 func getCreator(minCap uint) func() interface{} {
-	return func() interface {} {
+	return func() interface{} {
 		return make([]byte, minCap)
 	}
 }
@@ -346,6 +346,12 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 	binary.BigEndian.PutUint32(buf[1:], uint32(length))
 	// Copy encoded msg to buf
 	copy(buf[5:], b)
+	switch c.(type) {
+	case *protoCodec:
+		FreeBuffer(b)
+	default:
+		panic("why are we not using a protobuf codec")
+	}
 
 	return buf, nil
 }
