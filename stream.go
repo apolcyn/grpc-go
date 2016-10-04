@@ -311,6 +311,7 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 		return Errorf(codes.Internal, "grpc: %v", err)
 	}
 	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
+	FreeBuffer(out)
 	return err
 }
 
@@ -486,6 +487,7 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false}); err != nil {
 		return toRPCErr(err)
 	}
+	FreeBuffer(out)
 	return nil
 }
 

@@ -334,7 +334,7 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 		sizeLen    = 4
 	)
 
-	var buf = make([]byte, payloadLen+sizeLen+len(b))
+	var buf = AllocBuffer(payloadLen + sizeLen + len(b))
 
 	// Write payload format
 	if cp == nil {
