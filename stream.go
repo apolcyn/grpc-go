@@ -311,11 +311,6 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 		return Errorf(codes.Internal, "grpc: %v", err)
 	}
 	err = cs.t.Write(cs.s, out, &transport.Options{Last: false})
-	switch cs.codec.(type) {
-	case *protoCodec:
-		FreeBuffer(out)
-	default:
-	}
 	return err
 }
 
