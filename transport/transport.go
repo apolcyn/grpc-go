@@ -194,22 +194,22 @@ type Stream struct {
 	statusDesc string
 	// Error that might have previously occurred when reading frames
 	previousReadError error
-	BufferPool *LocalBufferPool
+	BufferPool        *LocalBufferPool
 }
 
 func NewLocalBufferPool() *LocalBufferPool {
-	return &LocalBufferPool {
+	return &LocalBufferPool{
 		buffers: make([][]byte, 1),
-		mu: new(sync.Mutex),
+		mu:      new(sync.Mutex),
 	}
 }
 
 type LocalBufferPool struct {
 	buffers [][]byte
-	mu *sync.Mutex
+	mu      *sync.Mutex
 }
 
-func (p* LocalBufferPool) GetBuf(size int) []byte {
+func (p *LocalBufferPool) GetBuf(size int) []byte {
 	defer p.mu.Unlock()
 	p.mu.Lock()
 	for i := 0; i < len(p.buffers); i++ {
@@ -222,7 +222,7 @@ func (p* LocalBufferPool) GetBuf(size int) []byte {
 	return make([]byte, size)
 }
 
-func (p* LocalBufferPool) PutBuf(buf []byte) {
+func (p *LocalBufferPool) PutBuf(buf []byte) {
 	defer p.mu.Unlock()
 	p.mu.Lock()
 	for i := 0; i < len(p.buffers); i++ {
@@ -231,9 +231,8 @@ func (p* LocalBufferPool) PutBuf(buf []byte) {
 			return
 		}
 	}
-	panic("cache full in put buf back to local buffer")
+	//panic("cache full in put buf back to local buffer")
 }
-
 
 // RecvCompress returns the compression algorithm applied to the inbound
 // message. It is empty string if there is no compression applied.

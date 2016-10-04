@@ -145,10 +145,10 @@ func newHTTP2Server(conn net.Conn, maxStreams uint32, authInfo credentials.AuthI
 func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(*Stream)) (close bool) {
 	buf := newRecvBuffer()
 	s := &Stream{
-		id:  frame.Header().StreamID,
-		st:  t,
-		buf: buf,
-		fc:  &inFlow{limit: initialWindowSize},
+		id:         frame.Header().StreamID,
+		st:         t,
+		buf:        buf,
+		fc:         &inFlow{limit: initialWindowSize},
 		BufferPool: NewLocalBufferPool(),
 	}
 
