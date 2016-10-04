@@ -194,10 +194,10 @@ type Stream struct {
 	statusDesc string
 	// Error that might have previously occurred when reading frames
 	previousReadError error
-	BufferPool LocalBufferPool
+	BufferPool *LocalBufferPool
 }
 
-func NewLocalBuffer() *LocalBufferPool {
+func NewLocalBufferPool() *LocalBufferPool {
 	return &LocalBufferPool {
 		buffers: make([][]byte, 1),
 		mu: new(sync.Mutex),
@@ -231,6 +231,7 @@ func (p* LocalBufferPool) PutBuf(buf []byte) {
 			return
 		}
 	}
+	panic("cache full in put buf back to local buffer")
 }
 
 

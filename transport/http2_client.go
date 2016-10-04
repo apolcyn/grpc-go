@@ -247,6 +247,7 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 		fc:            &inFlow{limit: initialWindowSize},
 		sendQuotaPool: newQuotaPool(int(t.streamSendQuota)),
 		headerChan:    make(chan struct{}),
+		BufferPool:    NewLocalBufferPool(),
 	}
 	t.nextID += 2
 	s.windowHandler = func(n int) {
@@ -731,7 +732,7 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		// TODO(bradfitz, zhaoq): A copy is required here because there is no
 		// guarantee f.Data() is consumed before the arrival of next frame.
 		// Can this copy be eliminated?
-		data := make([]byte, size)
+		data := s.BufferPool.GetBuf(size)
 		copy(data, f.Data())
 		s.write(recvMsg{data: data})
 	}
