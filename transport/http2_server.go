@@ -152,10 +152,11 @@ func (t *http2Server) BufferPool() buffers.BufferPool {
 func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(*Stream)) (close bool) {
 	buf := newRecvBuffer()
 	s := &Stream{
-		id:  frame.Header().StreamID,
-		st:  t,
-		buf: buf,
-		fc:  &inFlow{limit: initialWindowSize},
+		id:         frame.Header().StreamID,
+		st:         t,
+		buf:        buf,
+		fc:         &inFlow{limit: initialWindowSize},
+		BufferPool: buffers.NewProtobufBufferPool(),
 	}
 
 	var state decodeState
@@ -371,7 +372,7 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 		// TODO(bradfitz, zhaoq): A copy is required here because there is no
 		// guarantee f.Data() is consumed before the arrival of next frame.
 		// Can this copy be eliminated?
-		data := t.bufferPool.GetBuf(uint(size))
+		data := s.BufferPool.GetBuf(uint(size))
 		copy(data, f.Data())
 		s.write(recvMsg{data: data})
 	}

@@ -195,6 +195,7 @@ type Stream struct {
 	statusDesc string
 	// Error that might have previously occurred when reading frames
 	previousReadError error
+	BufferPool        buffers.BufferPool
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound

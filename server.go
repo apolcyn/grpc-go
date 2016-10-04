@@ -618,7 +618,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 				statusCode = codes.Internal
 				statusDesc = fmt.Sprintf("grpc: server received a message of %d bytes exceeding %d limit", len(req), s.opts.maxMsgSize)
 			}
-			var codec = createNewProtoCodec(s.opts.codec, t.BufferPool())
+			var codec = createNewProtoCodec(s.opts.codec, stream.BufferPool)
 			if err := codec.Unmarshal(req, v); err != nil {
 				return err
 			}
@@ -691,12 +691,12 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 	ss := &serverStream{
 		t:          t,
 		s:          stream,
-		codec:      createNewProtoCodec(s.opts.codec, t.BufferPool()),
+		codec:      createNewProtoCodec(s.opts.codec, stream.BufferPool),
 		cp:         s.opts.cp,
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,
 		trInfo:     trInfo,
-		bufferPool: t.BufferPool(),
+		bufferPool: stream.BufferPool,
 	}
 	if ss.cp != nil {
 		ss.cbuf = new(bytes.Buffer)
