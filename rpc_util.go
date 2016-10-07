@@ -66,12 +66,14 @@ type Codec interface {
 type protoCodec struct {
 	readBuffer  *proto.Buffer
 	writeBuffer *proto.Buffer
+	lastWriteBuffer []byte
 }
 
 func NewProtoCodec() *protoCodec {
 	return &protoCodec{
 		readBuffer:  proto.NewBuffer(nil),
 		writeBuffer: proto.NewBuffer(nil),
+		lastWriteBuffer: make([]byte, 0),
 	}
 }
 
@@ -84,40 +86,19 @@ func getCreator(minCap uint) func() interface{} {
 	}
 }
 
-func AllocBuffer(cap int) []byte {
-	defer poolMu.Unlock()
-	poolMu.Lock()
-	var minCap = uint(cap)
-	_, ok := bufferPools[minCap]
-	if !ok {
-		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
+func (c *protoCodec) updateWriteBuffer(capacity int) {
+	if len(c.lastWriteBuffer) >= capacity {
+		return
 	}
-	var out = bufferPools[minCap].Get().([]byte)
-	if len(out) != int(minCap) {
-		panic("something is wrong with buffer pool")
-	}
-	return out[0:minCap]
-}
-
-func FreeBuffer(buf []byte) {
-	defer poolMu.Unlock()
-	poolMu.Lock()
-	var minCap = uint(len(buf))
-	_, ok := bufferPools[minCap]
-	if !ok {
-		bufferPools[minCap] = &sync.Pool{New: getCreator(minCap)}
-	}
-	bufferPools[minCap].Put(buf)
+	c.lastWriteBuffer = make([]byte, capacity)
+	return
 }
 
 func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
-	var buf = AllocBuffer(sizeNeeded)
-	if len(buf) != sizeNeeded {
-		panic("something is up here")
-	}
-	c.writeBuffer.SetBuf(buf)
+	c.updateWriteBuffer(sizeNeeded)
+	c.writeBuffer.SetBuf(c.lastWriteBuffer)
 	c.writeBuffer.Reset()
 	err := c.writeBuffer.Marshal(protoMsg)
 	if err != nil {
@@ -334,7 +315,7 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 		sizeLen    = 4
 	)
 
-	var buf = AllocBuffer(payloadLen + sizeLen + len(b))
+	var buf = make([]byte, payloadLen + sizeLen + len(b))
 
 	// Write payload format
 	if cp == nil {
@@ -346,12 +327,6 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte
 	binary.BigEndian.PutUint32(buf[1:], uint32(length))
 	// Copy encoded msg to buf
 	copy(buf[5:], b)
-	switch c.(type) {
-	case *protoCodec:
-		FreeBuffer(b)
-	default:
-		panic("why are we not using a protobuf codec")
-	}
 
 	return buf, nil
 }

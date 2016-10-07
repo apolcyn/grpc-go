@@ -38,8 +38,6 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
-	"errors"
-	"bytes"
 	"fmt"
 	"io"
 	"net"
