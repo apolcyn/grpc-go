@@ -67,6 +67,7 @@ type protoCodec struct {
 	readBuffer  *proto.Buffer
 	writeBuffer *proto.Buffer
 	lastWriteBuffer []byte
+        mu *sync.Mutex
 }
 
 func NewProtoCodec() *protoCodec {
@@ -74,15 +75,7 @@ func NewProtoCodec() *protoCodec {
 		readBuffer:  proto.NewBuffer(nil),
 		writeBuffer: proto.NewBuffer(nil),
 		lastWriteBuffer: make([]byte, 0),
-	}
-}
-
-var bufferPools = make(map[uint]*sync.Pool)
-var poolMu = new(sync.Mutex)
-
-func getCreator(minCap uint) func() interface{} {
-	return func() interface{} {
-		return make([]byte, minCap)
+                mu: new(sync.Mutex),
 	}
 }
 
@@ -95,6 +88,8 @@ func (c *protoCodec) updateWriteBuffer(capacity int) {
 }
 
 func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
+        defer c.mu.Unlock()
+        c.mu.Lock()
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
 	c.updateWriteBuffer(sizeNeeded)
@@ -110,6 +105,8 @@ func (c *protoCodec) Marshal(v interface{}) ([]byte, error) {
 }
 
 func (c *protoCodec) Unmarshal(data []byte, v interface{}) error {
+        defer c.mu.Unlock()
+        c.mu.Lock()
 	c.readBuffer.SetBuf(data)
 	err := c.readBuffer.Unmarshal(v.(proto.Message))
 	c.readBuffer.SetBuf(nil)
