@@ -264,28 +264,17 @@ func (bc *benchmarkClient) doCloseLoopUnary(conns []*grpc.ClientConn, rpcCountPe
 				// Now relying on worker client to reserve time to do warm up.
 				// The worker client needs to wait for some time after client is created,
 				// before starting benchmark.
-				done := make(chan bool)
 				for {
-					go func() {
-						start := time.Now()
-						if err := benchmark.DoUnaryCall(client, reqSize, respSize); err != nil {
-							select {
-							case <-bc.stop:
-							case done <- false:
-							}
-							return
-						}
-						elapse := time.Since(start)
-						bc.lockingHistograms[idx].add(int64(elapse))
-						select {
-						case <-bc.stop:
-						case done <- true:
-						}
-					}()
+					start := time.Now()
+					if err := benchmark.DoUnaryCall(client, reqSize, respSize); err != nil {
+						return
+					}
+					elapse := time.Since(start)
+					bc.lockingHistograms[idx].add(int64(elapse))
 					select {
 					case <-bc.stop:
-						return
-					case <-done:
+                                                return
+					default:
 					}
 				}
 			}(idx)
