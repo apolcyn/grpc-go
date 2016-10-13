@@ -39,6 +39,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"io"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -301,6 +302,8 @@ func (bc *benchmarkClient) doCloseLoopUnary(conns []*grpc.ClientConn, rpcCountPe
 
 func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCountPerConn int, reqSize int, respSize int, payloadType string) {
 	var doRPC func(testpb.BenchmarkService_StreamingCallClient, int, int) error
+	//rpcCounts = make([]int, int(rpcCountPerConn * len(conns)))
+	//var numErrs  = 0
 	if payloadType == "bytebuf" {
 		doRPC = benchmark.DoByteBufStreamingRoundTrip
 	} else {
@@ -326,6 +329,9 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 				for {
 					start := time.Now()
 					if err := doRPC(stream, reqSize, respSize); err != nil {
+						if err != io.EOF {
+							panic("an error occured in an rpc: " + err.Error())
+						}
 						return
 					}
 					elapse := time.Since(start)
