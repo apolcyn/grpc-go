@@ -39,7 +39,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
-	"io"
+	//"io"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -329,9 +329,9 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 				for {
 					start := time.Now()
 					if err := doRPC(stream, reqSize, respSize); err != nil {
-						if err != io.EOF {
-							panic("an error occured in an rpc: " + err.Error())
-						}
+						//if err != io.EOF {
+							//panic("an error occured in an rpc: " + err.Error())
+						//}
 						return
 					}
 					elapse := time.Since(start)
