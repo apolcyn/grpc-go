@@ -193,6 +193,8 @@ type Stream struct {
 	statusDesc string
 	// Error that might have previously occurred when reading frames
 	previousReadError error
+	currReceiveIndex int
+	currReceiveFullMsg *recvMsg
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -282,6 +284,19 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 }
 
 func (s *Stream) write(m recvMsg) {
+	if s.currReceiveFullMsg == nil {
+		s.currReceiveFullMsg = &recvMsg{}
+	}
+	if m.err != nil {
+		s.currReceiveFullMsg.err = m.err
+		s.buf.put(s.currReceiveFullMsg)
+		s.currReceiveFullMsg = nil
+		s.currReceiveIndex = 0
+	}
+	if len(m) < 5 {
+		s.currReceiveFullMsg.err = io.ErrUnexpectedEOF
+	}
+	if recvMsg.p
 	s.buf.put(&m)
 }
 
