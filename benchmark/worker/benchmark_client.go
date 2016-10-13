@@ -34,8 +34,11 @@
 package main
 
 import (
+	"bufio"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -81,6 +84,36 @@ func (h *lockingHistogram) mergeInto(merged *stats.Histogram) {
 	merged.Merge(h.histogram)
 }
 
+type errorCounter struct {
+	count int
+}
+
+func (ec *errorCounter) add() {
+	ec.count += 1
+}
+
+func (ec *errorCounter) value() int {
+	return ec.count
+}
+
+type rpcCounter struct {
+	counts []int
+}
+
+func (rc *rpcCounter) reset() {
+	for i := range rc.counts {
+		rc.counts[i] = 0
+	}
+}
+
+func (rc *rpcCounter) inc(index int) {
+	rc.counts[index] += 1
+}
+
+func (rc *rpcCounter) get(index int) int {
+	return rc.counts[index]
+}
+
 type benchmarkClient struct {
 	closeConns        func()
 	stop              chan bool
@@ -88,6 +121,10 @@ type benchmarkClient struct {
 	histogramOptions  stats.HistogramOptions
 	lockingHistograms []lockingHistogram
 	rusageLastReset   *syscall.Rusage
+	errCounter        *errorCounter
+	rpcCounter        *rpcCounter
+	numConns          int
+	streamsPerConn    int
 }
 
 func printClientConfig(config *testpb.ClientConfig) {
@@ -231,6 +268,8 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 
 	rusage := new(syscall.Rusage)
 	syscall.Getrusage(syscall.RUSAGE_SELF, rusage)
+	errCounter := &errorCounter{}
+	rpcCounter := &rpcCounter{counts: make([]int, int(len(conns))*int(config.OutstandingRpcsPerChannel))}
 
 	rpcCountPerConn := int(config.OutstandingRpcsPerChannel)
 	bc := &benchmarkClient{
@@ -246,6 +285,10 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 		lastResetTime:   time.Now(),
 		closeConns:      closeConns,
 		rusageLastReset: rusage,
+		errCounter:      errCounter,
+		rpcCounter:      rpcCounter,
+		numConns:        len(conns),
+		streamsPerConn:  int(config.OutstandingRpcsPerChannel),
 	}
 
 	if err = performRPCs(config, conns, bc); err != nil {
@@ -302,8 +345,8 @@ func (bc *benchmarkClient) doCloseLoopUnary(conns []*grpc.ClientConn, rpcCountPe
 
 func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCountPerConn int, reqSize int, respSize int, payloadType string) {
 	var doRPC func(testpb.BenchmarkService_StreamingCallClient, int, int) error
-	//rpcCounts = make([]int, int(rpcCountPerConn * len(conns)))
-	//var numErrs  = 0
+	//rpcCounts = make([]int, int(rpcCountPerConn*len(conns)))
+	//var numErrs = 0
 	if payloadType == "bytebuf" {
 		doRPC = benchmark.DoByteBufStreamingRoundTrip
 	} else {
@@ -330,12 +373,14 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 					start := time.Now()
 					if err := doRPC(stream, reqSize, respSize); err != nil {
 						//if err != io.EOF {
-							//panic("an error occured in an rpc: " + err.Error())
+						//panic("an error occured in an rpc: " + err.Error())
 						//}
+						bc.errCounter.add()
 						return
 					}
 					elapse := time.Since(start)
 					bc.lockingHistograms[idx].add(int64(elapse))
+					bc.rpcCounter.inc(idx)
 					select {
 					case <-bc.stop:
 						return
@@ -343,6 +388,45 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 					}
 				}
 			}(idx)
+		}
+	}
+}
+
+var tmpCounter = 0
+
+func dumpErrAndRpcCounts(errs *errorCounter, rpcs *rpcCounter, streamsPerConn int) {
+	tmpCounter += 1
+	f, err := os.Create("err_and_rpc_counts_" + strconv.FormatInt(int64(tmpCounter), 10))
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	defer w.Flush()
+
+	if _, err := w.WriteString("---------------stats since last reset----------------\n"); err != nil {
+		panic(err)
+	}
+
+	if _, err := w.WriteString("Error Counts: " + strconv.FormatInt(int64(errs.value()), 10) + "\n"); err != nil {
+		panic(err)
+	}
+
+	var connTotal = 0
+	for i := range rpcs.counts {
+		if i%streamsPerConn == 0 {
+			if _, err := w.WriteString("previous conn total: " + strconv.FormatInt(int64(connTotal), 10) + "\n"); err != nil {
+				panic(err)
+			}
+			if _, err := w.WriteString("\n\n\n\n---------------new conn below:----------------\n"); err != nil {
+				panic(err)
+			}
+			connTotal = 0
+		}
+		val := rpcs.get(i)
+		connTotal += val
+		if _, err := w.WriteString("stream " + strconv.FormatInt(int64(i), 10) + " count was " + strconv.FormatInt(int64(val), 10) + "\n"); err != nil {
+			panic(err)
 		}
 	}
 }
@@ -372,6 +456,11 @@ func (bc *benchmarkClient) getStats(reset bool) *testpb.ClientStats {
 
 		bc.rusageLastReset = latestRusage
 		bc.lastResetTime = time.Now()
+		oldErrCounter := bc.errCounter
+		oldRpcCounter := bc.rpcCounter
+		bc.errCounter = &errorCounter{}
+		bc.rpcCounter = &rpcCounter{counts: make([]int, int(bc.streamsPerConn*bc.numConns))}
+		dumpErrAndRpcCounts(oldErrCounter, oldRpcCounter, bc.streamsPerConn)
 	} else {
 		// Merge only, not reset.
 		for i := range bc.lockingHistograms {
