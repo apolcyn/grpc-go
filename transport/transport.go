@@ -54,6 +54,8 @@ import (
 // protocol specific info has been removed.
 type recvMsg struct {
 	data []byte
+	cf   byte
+	length uint32
 	// nil: received some data
 	// io.EOF: stream is completed. data is nil.
 	// other non-nil error: transport failure. data is nil.
@@ -194,7 +196,7 @@ type Stream struct {
 	// Error that might have previously occurred when reading frames
 	previousReadError error
 	currReceiveIndex int
-	currReceiveFullMsg *recvMsg
+	inProgressReceiveMsg *recvMsg
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -283,19 +285,41 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 	return nil
 }
 
-func (s *Stream) write(m recvMsg) {
-	if s.currReceiveFullMsg == nil {
-		s.currReceiveFullMsg = &recvMsg{}
+func (s *Stream) beginNewRecvMsg(data []byte) {
+	s.inProgressRecvMsg = &recvMsg{}
+	s.currReceiveIndex = 0
+	if len(data) < 5 {
+		s.inProgressRecvMsg.err = io.ErrUnexpectedEOF
+		s.buf.put(s.inProgressRecvMsg)
+		s.inProgressRecvMsg = nil
+		s.currReceiveIndex = 0
 	}
-	if m.err != nil {
-		s.currReceiveFullMsg.err = m.err
-		s.buf.put(s.currReceiveFullMsg)
-		s.currReceiveFullMsg = nil
+	s.inProgressRecvMsg.cf = data[0]
+	inProgressRecvMsg.length = binary.BigEndian.UInt32(data[1:5])
+	s.inProgressRecvMsg.data = make([]byte, s.inProgressRecvMsg.length)
+	numCopied := copy(s.inProgressRecvMsg.data, data[5:])
+	s.inProgressRecvMsg.currReceiveIndex = numCopied
+	if numCopied == s.inProgressRecvMsg.length {
+		s.buf.put(s.inProgressRecvMsg)
+		s.inProgressRecvMsg = nil
+		s.currReceiveIndex = 0
+	}
+}
+
+func (s *Stream) write(data []byte, err error) {
+	if s.inProgressRecvMsg == nil {
+		s.inProgressRecvMsg = &recvMsg{}
+	}
+	if err != nil {
+		s.inProgressRecvMsg.err = err
+		s.buf.put(s.inProgressRecvMsg)
+		s.inProgressRecvMsg = nil
 		s.currReceiveIndex = 0
 	}
 	if len(m) < 5 {
-		s.currReceiveFullMsg.err = io.ErrUnexpectedEOF
+		s.inProgressRecvMsg.err = io.ErrUnexpectedEOF
 	}
+
 	if recvMsg.p
 	s.buf.put(&m)
 }
