@@ -216,31 +216,24 @@ const (
 // that the underlying io.Reader must not return an incompatible
 // error.
 func recvAndParseMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	frame, err := s.ReadNextFrame()
+	nextMsg, err := s.ReadNextMsg()
 	if err != nil {
 		return 0, nil, err
 	}
 
 	// Parse the 5 byte header of a gRPC message. Find more detail
 	// at http://www.grpc.io/docs/guides/wire.html.
-	if len(frame) < 5 {
-		return 0, nil, io.ErrUnexpectedEOF
-	}
-	pf = payloadFormat(frame[0])
-	length := binary.BigEndian.Uint32(frame[1:5])
+	pf = payloadFormat(nextMsg.Pf)
+	length := len(nextMsg.Data)
 
 	if length == 0 {
 		return pf, nil, nil
 	}
-	if length > uint32(maxMsgSize) {
+	if length > maxMsgSize {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
-	if length != uint32(len(frame[5:])) {
-		panic("something is up here")
-		return 0, nil, io.ErrUnexpectedEOF
-	}
 
-	return pf, frame[5:], nil
+	return pf, nextMsg.Data, nil 
 }
 
 // encode serializes msg and prepends the message header. If msg is nil, it

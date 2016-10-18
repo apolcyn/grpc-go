@@ -364,9 +364,7 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 		// TODO(bradfitz, zhaoq): A copy is required here because there is no
 		// guarantee f.Data() is consumed before the arrival of next frame.
 		// Can this copy be eliminated?
-		data := make([]byte, size)
-		copy(data, f.Data())
-		s.write(recvMsg{data: data})
+		s.write(f.Data(), nil)
 	}
 	if f.Header().Flags.Has(http2.FlagDataEndStream) {
 		// Received the end of stream from the client.
@@ -375,7 +373,7 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 			s.state = streamReadDone
 		}
 		s.mu.Unlock()
-		s.write(recvMsg{err: io.EOF})
+		s.write(nil, io.EOF)
 	}
 }
 

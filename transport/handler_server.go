@@ -328,11 +328,11 @@ func (ht *serverHandlerTransport) HandleStreams(startStream func(*Stream)) {
 		for buf := make([]byte, readSize); ; {
 			n, err := req.Body.Read(buf)
 			if n > 0 {
-				s.buf.put(&recvMsg{data: buf[:n:n]})
+				s.buf.put(&RecvMsg{Data: buf[:n:n]})
 				buf = buf[n:]
 			}
 			if err != nil {
-				s.buf.put(&recvMsg{err: mapRecvMsgError(err)})
+				s.buf.put(&RecvMsg{Err: mapRecvMsgError(err)})
 				return
 			}
 			if len(buf) == 0 {
@@ -374,7 +374,7 @@ func (ht *serverHandlerTransport) Drain() {
 }
 
 // mapRecvMsgError returns the non-nil err into the appropriate
-// error value as expected by callers of *grpc.parser.recvMsg.
+// error value as expected by callers of *grpc.parser.RecvMsg.
 // In particular, in can only be:
 //   * io.EOF
 //   * io.ErrUnexpectedEOF

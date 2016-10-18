@@ -38,6 +38,7 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -50,19 +51,18 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-// recvMsg represents the received msg from the transport. All transport
+// RecvMsg represents the received msg from the transport. All transport
 // protocol specific info has been removed.
-type recvMsg struct {
-	data []byte
-	cf   byte
-	length uint32
+type RecvMsg struct {
+	Data   []byte
+	Pf     byte
 	// nil: received some data
 	// io.EOF: stream is completed. data is nil.
 	// other non-nil error: transport failure. data is nil.
-	err error
+	Err error
 }
 
-func (*recvMsg) item() {}
+func (*RecvMsg) item() {}
 
 // All items in an out of a recvBuffer should be the same type.
 type item interface {
@@ -119,7 +119,7 @@ func (b *recvBuffer) get() <-chan item {
 // Read reads the next data from received for the stream.
 // It blocks if there no data frame available.
 // If Read returns any non-nil error, it will continue to return that error.
-func (s *Stream) ReadNextFrame() (frameData []byte, err error) {
+func (s *Stream) ReadNextMsg() (msg *RecvMsg, err error) {
 	if s.previousReadError != nil {
 		return nil, s.previousReadError
 	}
@@ -131,12 +131,12 @@ func (s *Stream) ReadNextFrame() (frameData []byte, err error) {
 		return nil, ErrStreamDrain
 	case i := <-s.buf.get():
 		s.buf.load()
-		msg := i.(*recvMsg)
-		if msg.err != nil {
-			return nil, msg.err
+		msg := i.(*RecvMsg)
+		if msg.Err != nil {
+			return nil, msg.Err
 		}
-		s.windowHandler(len(msg.data))
-		return msg.data, nil
+		s.windowHandler(len(msg.Data))
+		return msg, nil
 	}
 }
 
@@ -195,8 +195,8 @@ type Stream struct {
 	statusDesc string
 	// Error that might have previously occurred when reading frames
 	previousReadError error
-	currReceiveIndex int
-	inProgressReceiveMsg *recvMsg
+	currReceiveIndex  int
+	inProgressRecvMsg *RecvMsg
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -285,43 +285,56 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 	return nil
 }
 
-func (s *Stream) beginNewRecvMsg(data []byte) {
-	s.inProgressRecvMsg = &recvMsg{}
+func (s *Stream) resetRecvMsg() {
+	s.inProgressRecvMsg = &RecvMsg{}
+	s.currReceiveIndex = 0
+}
+
+func (s *Stream) appendToExistingRecvMsg(data []byte) bool {
+	numCopied := copy(s.inProgressRecvMsg.Data, data)
+	s.currReceiveIndex += numCopied
+	if s.currReceiveIndex == len(s.inProgressRecvMsg.Data) {
+		return true
+	}
+	return false
+}
+
+func (s *Stream) parseNewRecvMsgHeader(data []byte) {
+	s.inProgressRecvMsg = &RecvMsg{}
 	s.currReceiveIndex = 0
 	if len(data) < 5 {
-		s.inProgressRecvMsg.err = io.ErrUnexpectedEOF
+		s.inProgressRecvMsg.Err = io.ErrUnexpectedEOF
 		s.buf.put(s.inProgressRecvMsg)
 		s.inProgressRecvMsg = nil
 		s.currReceiveIndex = 0
+		return
 	}
-	s.inProgressRecvMsg.cf = data[0]
-	inProgressRecvMsg.length = binary.BigEndian.UInt32(data[1:5])
-	s.inProgressRecvMsg.data = make([]byte, s.inProgressRecvMsg.length)
-	numCopied := copy(s.inProgressRecvMsg.data, data[5:])
-	s.inProgressRecvMsg.currReceiveIndex = numCopied
-	if numCopied == s.inProgressRecvMsg.length {
-		s.buf.put(s.inProgressRecvMsg)
-		s.inProgressRecvMsg = nil
-		s.currReceiveIndex = 0
-	}
+	s.inProgressRecvMsg.Pf = data[0]
+	expectedLength := binary.BigEndian.Uint32(data[1:5])
+	s.inProgressRecvMsg.Data = make([]byte, expectedLength)
 }
 
 func (s *Stream) write(data []byte, err error) {
+	grpcData := data
 	if s.inProgressRecvMsg == nil {
-		s.inProgressRecvMsg = &recvMsg{}
-	}
-	if err != nil {
-		s.inProgressRecvMsg.err = err
+		s.resetRecvMsg()
+		if err != nil {
+			s.inProgressRecvMsg.Err = err
+			s.buf.put(s.inProgressRecvMsg)
+			s.inProgressRecvMsg = nil
+			return
+		}
+		if s.parseNewRecvMsgHeader(data); s.inProgressRecvMsg.Err != nil {
+			s.buf.put(s.inProgressRecvMsg)
+			s.inProgressRecvMsg = nil
+			return
+		}
+		grpcData = data[5:]
+	} 
+	if s.appendToExistingRecvMsg(grpcData) || s.inProgressRecvMsg.Err != nil {
 		s.buf.put(s.inProgressRecvMsg)
 		s.inProgressRecvMsg = nil
-		s.currReceiveIndex = 0
 	}
-	if len(m) < 5 {
-		s.inProgressRecvMsg.err = io.ErrUnexpectedEOF
-	}
-
-	if recvMsg.p
-	s.buf.put(&m)
 }
 
 // The key to save transport.Stream in the context.
