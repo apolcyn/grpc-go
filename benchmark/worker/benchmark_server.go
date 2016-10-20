@@ -34,6 +34,7 @@
 package main
 
 import (
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
@@ -84,6 +85,15 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 
 	// Use all cpu cores available on machine by default.
 	// TODO: Revisit this for the optimal default setup.
+	// Reduce frequency of GC mark phases, roughly without increasing their time,
+	// by using a larger heap.
+	// See https://software.intel.com/en-us/blogs/2014/05/10/debugging-performance-issues-in-go-programs
+	// for more info.
+	// This value determined experimentally, may have a different ideal in different environments.
+	if os.Getenv("GOGC") == "" {
+		os.Setenv("GOGC", "500")
+	}
+
 	numOfCores := runtime.NumCPU()
 	if config.CoreLimit > 0 {
 		numOfCores = int(config.CoreLimit)
