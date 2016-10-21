@@ -61,7 +61,7 @@ type recvMsg struct {
 	err error
 }
 
-func (*recvMsg) item() {}
+func (r recvMsg) item() {}
 
 // All items in an out of a recvBuffer should be the same type.
 type item interface {
@@ -144,7 +144,7 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 		return 0, ErrStreamDrain
 	case i := <-r.recv.get():
 		r.recv.load()
-		m := i.(*recvMsg)
+		m := i.(recvMsg)
 		if m.err != nil {
 			return 0, m.err
 		}
@@ -314,7 +314,7 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 }
 
 func (s *Stream) write(m recvMsg) {
-	s.buf.put(&m)
+	s.buf.put(m)
 }
 
 // Read reads all the data available for this Stream from the transport and
