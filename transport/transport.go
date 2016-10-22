@@ -38,6 +38,7 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -120,7 +121,7 @@ type recvBufferReader struct {
 	ctx    context.Context
 	goAway chan struct{}
 	recv   *recvBuffer
-	last   []byte // Stores the remaining data in the previous calls.
+	last   *bytes.Reader // Stores the remaining data in the previous calls.
 	err    error
 }
 
@@ -134,9 +135,7 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 	defer func() { r.err = err }()
 	if r.last != nil && len(r.last) > 0 {
 		// Read remaining data left in last call.
-		copied := copy(p, r.last)
-		r.last = r.last[copied:]
-		return copied, nil
+		return r.last.Read(p), nil
 	}
 	select {
 	case <-r.ctx.Done():
@@ -149,9 +148,8 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 		if m.err != nil {
 			return 0, m.err
 		}
-		copied := copy(p, m.data)
-		r.last = m.data[copied:]
-		return copied, nil
+		r.last.Reset(m.data)
+		return r.last.Read(p), nil
 	}
 }
 
