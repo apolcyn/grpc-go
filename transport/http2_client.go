@@ -576,7 +576,7 @@ func (t *http2Client) GracefulClose() error {
 // should proceed only if Write returns nil.
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
 // if it improves the performance.
-func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
+func (t *http2Client) Write(s *Stream, data []byte, opts Options) error {
 	r := bytes.NewBuffer(data)
 	for {
 		var p []byte

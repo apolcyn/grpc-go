@@ -240,7 +240,7 @@ func (ht *serverHandlerTransport) writeCommonHeaders(s *Stream) {
 	}
 }
 
-func (ht *serverHandlerTransport) Write(s *Stream, data []byte, opts *Options) error {
+func (ht *serverHandlerTransport) Write(s *Stream, data []byte, opts Options) error {
 	return ht.do(func() {
 		ht.writeCommonHeaders(s)
 		ht.rw.Write(data)

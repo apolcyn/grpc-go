@@ -531,7 +531,7 @@ func (s *Server) removeConn(c io.Closer) {
 	}
 }
 
-func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts *transport.Options) error {
+func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts transport.Options) error {
 	var cbuf *bytes.Buffer
 	if cp != nil {
 		cbuf = new(bytes.Buffer)
@@ -657,7 +657,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		if trInfo != nil {
 			trInfo.tr.LazyLog(stringer("OK"), false)
 		}
-		opts := &transport.Options{
+		opts := transport.Options{
 			Last:  true,
 			Delay: false,
 		}
