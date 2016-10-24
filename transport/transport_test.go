@@ -179,7 +179,7 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32, ht hType) {
 		if err != nil {
 			return
 		}
-		transport, err := NewServerTransport("http2", conn, maxStreams, nil)
+		transport, err := NewServerTransport("http2", conn, maxStreams, nil, noOpGetCodec)
 		if err != nil {
 			return
 		}
@@ -248,7 +248,7 @@ func setUp(t *testing.T, port int, maxStreams uint32, ht hType) (*server, Client
 	target := TargetInfo{
 		Addr: addr,
 	}
-	ct, connErr = NewClientTransport(context.Background(), target, ConnectOptions{})
+	ct, connErr = NewClientTransport(context.Background(), target, ConnectOptions{}, noOpGetCodec)
 	if connErr != nil {
 		t.Fatalf("failed to create transport: %v", connErr)
 	}

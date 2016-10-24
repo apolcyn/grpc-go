@@ -93,7 +93,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *transport.Stream) {
 			return
 		}
 		var v string
-		codec := testCodec{}
+		codec := s.GetCodec().(Codec)
 		if err := codec.Unmarshal(req, &v); err != nil {
 			t.Errorf("Failed to unmarshal the received message: %v", err)
 			return
@@ -118,7 +118,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *transport.Stream) {
 		}
 	}
 	// send a response back to end the stream.
-	reply, err := encode(testCodec{}, &expectedResponse, nil, nil)
+	reply, err := encode(s.GetCodec().(Codec), &expectedResponse, nil, nil)
 	if err != nil {
 		t.Errorf("Failed to encode the response: %v", err)
 		return
@@ -159,12 +159,14 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32) {
 	s.port = p
 	s.conns = make(map[transport.ServerTransport]bool)
 	s.startedErr <- nil
+	codecProviderCreator := newGenericCodecProviderCreator(testCodec{})
 	for {
 		conn, err := s.lis.Accept()
 		if err != nil {
 			return
 		}
-		st, err := transport.NewServerTransport("http2", conn, maxStreams, nil)
+
+		st, err := transport.NewServerTransport("http2", conn, maxStreams, nil, codecProviderCreator.onNewTransport())
 		if err != nil {
 			continue
 		}
