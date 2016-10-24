@@ -100,6 +100,7 @@ type Server struct {
 	cv     *sync.Cond
 	m      map[string]*service // service name -> service info
 	events trace.EventLog
+	codecCreatorCreator codecPerTransportCreator
 }
 
 type options struct {

@@ -61,6 +61,14 @@ type Codec interface {
 	String() string
 }
 
+type codecPerStreamCreator interface {
+	onNewStream() Codec
+}
+
+type codecPerTransportCreator interface {
+	onNewTransport() codecPerStreamCreator
+}
+
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct{}
 
@@ -75,6 +83,57 @@ func (protoCodec) Unmarshal(data []byte, v interface{}) error {
 func (protoCodec) String() string {
 	return "proto"
 }
+
+type protoCodecPerStreamCreator struct {
+	codec Codec
+}
+
+func (c protoCodecPerStreamCreator) onNewStream() Codec {
+	return c.codec
+}
+
+type protoCodecPerTransportCreator struct {
+	codec Codec
+}
+
+func (c protoCodecPerTransportCreator) onNewTransport() codecPerStreamCreator {
+	return &protoCodecPerStreamCreator{
+		codec: c.codec,
+	}
+}
+
+func newProtoCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
+	return &protoCodecPerTransportCreator{
+		codec: codec,
+	}
+}
+
+
+/***************/
+type genericCodecPerStreamCreator struct {
+	codec Codec
+}
+
+func (c genericCodecPerStreamCreator) onNewStream() Codec {
+	return c.codec
+}
+
+type genericCodecPerTransportCreator struct {
+	codec Codec
+}
+
+func (c genericCodecPerTransportCreator) onNewTransport() codecPerStreamCreator {
+	return &genericCodecPerStreamCreator{
+		codec: c.codec,
+	}
+}
+
+func newGenericCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
+	return &genericCodecPerTransportCreator{
+		codec: codec,
+	}
+}
+
 
 // Compressor defines the interface gRPC uses to compress a message.
 type Compressor interface {

@@ -385,6 +385,7 @@ type ClientConn struct {
 
 	mu    sync.RWMutex
 	conns map[Address]*addrConn
+	codecCreatorCreator codecPerTransportCreator
 }
 
 func (cc *ClientConn) lbWatcher() {
