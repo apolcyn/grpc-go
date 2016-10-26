@@ -53,8 +53,9 @@ import (
 )
 
 var (
-	driverPort = flag.Int("driver_port", 10000, "port for communication with driver")
-	serverPort = flag.Int("server_port", 0, "port for benchmark server if not specified by server config message")
+	driverPort    = flag.Int("driver_port", 10000, "port for communication with driver")
+	serverPort    = flag.Int("server_port", 0, "port for benchmark server if not specified by server config message")
+	blockProfRate = flag.Int("block_prof_rate", 0, "port for benchmark server if not specified by server config message")
 )
 
 type byteBufCodec struct {
@@ -89,6 +90,7 @@ type workerServer struct {
 }
 
 func (s *workerServer) RunServer(stream testpb.WorkerService_RunServerServer) error {
+	runtime.SetBlockProfileRate(*blockProfRate)
 	var bs *benchmarkServer
 	defer func() {
 		// Close benchmark server when stream ends.
