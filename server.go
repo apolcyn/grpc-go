@@ -666,6 +666,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Last:  true,
 			Delay: false,
 		}
+		defer func() { t.GetCodecCreator().OnEndStream(stream.GetCodec()) }()
 		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
 			switch err := err.(type) {
 			case transport.ConnectionError:
@@ -716,6 +717,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 		}()
 	}
 	var appErr error
+	defer func() { t.GetCodecCreator().OnEndStream(stream.GetCodec()) }()
 	if s.opts.streamInt == nil {
 		appErr = sd.Handler(srv.server, ss)
 	} else {

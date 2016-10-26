@@ -56,6 +56,7 @@ type Codec interface {
 
 type CodecPerStreamCreator interface {
 	OnNewStream() Codec
+	OnEndStream(Codec)
 }
 
 type CodecPerTransportCreator interface {
@@ -64,15 +65,15 @@ type CodecPerTransportCreator interface {
 
 // ProtoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type ProtoCodec struct {
-	unmarshalPool *sync.Pool
-	marshalPool   *sync.Pool
+	unmarshalBuffer *proto.Buffer
+	marshalBuffer   *marshalBuffer
 }
 
 func (p ProtoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
 	var bufToUse []byte
-	mb := p.marshalPool.Get().(*marshalBuffer)
+	mb := p.marshalBuffer
 	buffer := mb.buffer
 
 	if mb.lastBuf != nil && sizeNeeded <= len(mb.lastBuf) {
@@ -89,16 +90,14 @@ func (p ProtoCodec) Marshal(v interface{}) ([]byte, error) {
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
 	mb.lastBuf = bufToUse
-	p.marshalPool.Put(mb)
 	return out, err
 }
 
 func (p ProtoCodec) Unmarshal(data []byte, v interface{}) error {
-	buffer := p.unmarshalPool.Get().(*proto.Buffer)
+	buffer := p.unmarshalBuffer
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
 	buffer.SetBuf(nil)
-	p.unmarshalPool.Put(buffer)
 	return err
 }
 
@@ -107,36 +106,39 @@ func (ProtoCodec) String() string {
 }
 
 type ProtoCodecPerStreamCreator struct {
-	unmarshalPool *sync.Pool
-	marshalPool   *sync.Pool
+	protoCodecPool *sync.Pool
 }
 
 func (c ProtoCodecPerStreamCreator) OnNewStream() Codec {
-	return &ProtoCodec{
-		unmarshalPool: c.unmarshalPool,
-		marshalPool:   c.marshalPool,
+	codec := c.protoCodecPool.Get().(Codec)
+	if codec == nil {
+		codec = &ProtoCodec{
+			marshalBuffer:   newMarshalBuffer(),
+			unmarshalBuffer: &proto.Buffer{},
+		}
 	}
+	return codec
+}
+
+func (p ProtoCodecPerStreamCreator) OnEndStream(c Codec) {
+	p.protoCodecPool.Put(c)
 }
 
 type ProtoCodecPerTransportCreator struct {
 }
 
 func (c ProtoCodecPerTransportCreator) OnNewTransport() CodecPerStreamCreator {
-	unmarshallPool := &sync.Pool{
+	protoCodecPool := &sync.Pool{
 		New: func() interface{} {
-			return &proto.Buffer{}
-		},
-	}
-
-	marshalPool := &sync.Pool{
-		New: func() interface{} {
-			return newMarshalBuffer()
+			return &ProtoCodec{
+				unmarshalBuffer: &proto.Buffer{},
+				marshalBuffer:   newMarshalBuffer(),
+			}
 		},
 	}
 
 	return &ProtoCodecPerStreamCreator{
-		unmarshalPool: unmarshallPool,
-		marshalPool:   marshalPool,
+		protoCodecPool: protoCodecPool,
 	}
 }
 
@@ -151,6 +153,9 @@ type GenericCodecPerStreamCreator struct {
 
 func (c GenericCodecPerStreamCreator) OnNewStream() Codec {
 	return c.codec
+}
+
+func (c GenericCodecPerStreamCreator) OnEndStream(Codec) {
 }
 
 type GenericCodecPerTransportCreator struct {
