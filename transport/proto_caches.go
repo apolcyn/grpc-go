@@ -37,7 +37,11 @@ to complete various transactions (e.g., an RPC).
 */
 package transport // import "google.golang.org/grpc/transport"
 
-import "github.com/golang/protobuf/proto"
+import (
+	"sync"
+
+	"github.com/golang/protobuf/proto"
+)
 
 // Codec defines the interface gRPC uses to encode and decode messages.
 type Codec interface {
@@ -59,14 +63,43 @@ type CodecPerTransportCreator interface {
 }
 
 // ProtoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
-type ProtoCodec struct{}
-
-func (ProtoCodec) Marshal(v interface{}) ([]byte, error) {
-	return proto.Marshal(v.(proto.Message))
+type ProtoCodec struct {
+	unmarshalPool *sync.Pool
+	marshalPool   *sync.Pool
 }
 
-func (ProtoCodec) Unmarshal(data []byte, v interface{}) error {
-	return proto.Unmarshal(data, v.(proto.Message))
+func (p ProtoCodec) Marshal(v interface{}) ([]byte, error) {
+	var protoMsg = v.(proto.Message)
+	var sizeNeeded = proto.Size(protoMsg)
+	var bufToUse []byte
+	mb := p.marshalPool.Get().(*marshalBuffer)
+	buffer := mb.buffer
+
+	if mb.lastBuf != nil && sizeNeeded <= len(mb.lastBuf) {
+		bufToUse = mb.lastBuf
+	} else {
+		bufToUse = make([]byte, sizeNeeded)
+	}
+	buffer.SetBuf(bufToUse)
+	buffer.Reset()
+	err := buffer.Marshal(protoMsg)
+	if err != nil {
+		panic("something went wrong with unmarshaling")
+	}
+	out := buffer.Bytes()
+	buffer.SetBuf(nil)
+	mb.lastBuf = bufToUse
+	p.marshalPool.Put(mb)
+	return out, err
+}
+
+func (p ProtoCodec) Unmarshal(data []byte, v interface{}) error {
+	buffer := p.unmarshalPool.Get().(*proto.Buffer)
+	buffer.SetBuf(data)
+	err := buffer.Unmarshal(v.(proto.Message))
+	buffer.SetBuf(nil)
+	p.unmarshalPool.Put(buffer)
+	return err
 }
 
 func (ProtoCodec) String() string {
@@ -74,27 +107,41 @@ func (ProtoCodec) String() string {
 }
 
 type ProtoCodecPerStreamCreator struct {
-	codec Codec
+	unmarshalPool *sync.Pool
+	marshalPool   *sync.Pool
 }
 
 func (c ProtoCodecPerStreamCreator) OnNewStream() Codec {
-	return c.codec
+	return &ProtoCodec{
+		unmarshalPool: c.unmarshalPool,
+		marshalPool:   c.marshalPool,
+	}
 }
 
 type ProtoCodecPerTransportCreator struct {
-	codec Codec
 }
 
 func (c ProtoCodecPerTransportCreator) OnNewTransport() CodecPerStreamCreator {
+	unmarshallPool := &sync.Pool{
+		New: func() interface{} {
+			return &proto.Buffer{}
+		},
+	}
+
+	marshalPool := &sync.Pool{
+		New: func() interface{} {
+			return newMarshalBuffer()
+		},
+	}
+
 	return &ProtoCodecPerStreamCreator{
-		codec: c.codec,
+		unmarshalPool: unmarshallPool,
+		marshalPool:   marshalPool,
 	}
 }
 
-func NewProtoCodecPerTransportCreator(codec Codec) CodecPerTransportCreator {
-	return &ProtoCodecPerTransportCreator{
-		codec: codec,
-	}
+func NewProtoCodecPerTransportCreator() CodecPerTransportCreator {
+	return &ProtoCodecPerTransportCreator{}
 }
 
 /***************/
@@ -119,5 +166,16 @@ func (c GenericCodecPerTransportCreator) OnNewTransport() CodecPerStreamCreator 
 func NewGenericCodecPerTransportCreator(codec Codec) CodecPerTransportCreator {
 	return &GenericCodecPerTransportCreator{
 		codec: codec,
+	}
+}
+
+type marshalBuffer struct {
+	buffer  *proto.Buffer
+	lastBuf []byte
+}
+
+func newMarshalBuffer() *marshalBuffer {
+	return &marshalBuffer{
+		buffer: &proto.Buffer{},
 	}
 }

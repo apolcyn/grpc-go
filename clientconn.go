@@ -265,7 +265,7 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.codecCreatorCreator = transport.NewProtoCodecPerTransportCreator(transport.ProtoCodec{})
+		cc.codecCreatorCreator = transport.NewProtoCodecPerTransportCreator()
 	} else {
 		cc.codecCreatorCreator = transport.NewGenericCodecPerTransportCreator(cc.dopts.codec)
 	}

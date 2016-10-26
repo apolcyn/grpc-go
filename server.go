@@ -198,7 +198,7 @@ func NewServer(opt ...ServerOption) *Server {
 	var codecCreatorCreator transport.CodecPerTransportCreator
 	if opts.codec == nil {
 		// Set the default codec.
-		codecCreatorCreator = transport.NewProtoCodecPerTransportCreator(transport.ProtoCodec{})
+		codecCreatorCreator = transport.NewProtoCodecPerTransportCreator()
 	} else {
 		codecCreatorCreator = transport.NewGenericCodecPerTransportCreator(opts.codec)
 	}
