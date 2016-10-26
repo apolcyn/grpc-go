@@ -37,7 +37,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"strconv"
 	"time"
@@ -225,6 +228,11 @@ func main() {
 		// TODO revise this once server graceful stop is supported in gRPC.
 		time.Sleep(time.Second)
 		s.Stop()
+	}()
+
+	go func() {
+		grpclog.Println("worker listening on 6060")
+		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
 	s.Serve(lis)
