@@ -75,7 +75,7 @@ func (protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
 	//buffer := protoBufferPool.Get().(*proto.Buffer)
-	buffer = &proto.Buffer{}
+	buffer := &proto.Buffer{}
 	buffer.SetBuf(make([]byte, sizeNeeded))
 	buffer.Reset()
 	err := buffer.Marshal(protoMsg)
@@ -90,7 +90,7 @@ func (protoCodec) Marshal(v interface{}) ([]byte, error) {
 
 func (protoCodec) Unmarshal(data []byte, v interface{}) error {
 	//buffer := protoBufferPool.Get().(*proto.Buffer)
-	buffer = &proto.Buffer{}
+	buffer := &proto.Buffer{}
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
 	buffer.SetBuf(nil)
