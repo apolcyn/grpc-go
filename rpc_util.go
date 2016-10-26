@@ -43,95 +43,11 @@ import (
 	"math"
 	"os"
 
-	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/transport"
 )
-
-// Codec defines the interface gRPC uses to encode and decode messages.
-type Codec interface {
-	// Marshal returns the wire format of v.
-	Marshal(v interface{}) ([]byte, error)
-	// Unmarshal parses the wire format into v.
-	Unmarshal(data []byte, v interface{}) error
-	// String returns the name of the Codec implementation. The returned
-	// string will be used as part of content type in transmission.
-	String() string
-}
-
-type codecPerStreamCreator interface {
-	onNewStream() Codec
-}
-
-type codecPerTransportCreator interface {
-	onNewTransport() codecPerStreamCreator
-}
-
-// protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
-type protoCodec struct{}
-
-func (protoCodec) Marshal(v interface{}) ([]byte, error) {
-	return proto.Marshal(v.(proto.Message))
-}
-
-func (protoCodec) Unmarshal(data []byte, v interface{}) error {
-	return proto.Unmarshal(data, v.(proto.Message))
-}
-
-func (protoCodec) String() string {
-	return "proto"
-}
-
-type protoCodecPerStreamCreator struct {
-	codec Codec
-}
-
-func (c protoCodecPerStreamCreator) onNewStream() Codec {
-	return c.codec
-}
-
-type protoCodecPerTransportCreator struct {
-	codec Codec
-}
-
-func (c protoCodecPerTransportCreator) onNewTransport() codecPerStreamCreator {
-	return &protoCodecPerStreamCreator{
-		codec: c.codec,
-	}
-}
-
-func newProtoCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
-	return &protoCodecPerTransportCreator{
-		codec: codec,
-	}
-}
-
-/***************/
-type genericCodecPerStreamCreator struct {
-	codec Codec
-}
-
-func (c genericCodecPerStreamCreator) onNewStream() Codec {
-	return c.codec
-}
-
-type genericCodecPerTransportCreator struct {
-	codec Codec
-}
-
-func (c genericCodecPerTransportCreator) onNewTransport() codecPerStreamCreator {
-	return &genericCodecPerStreamCreator{
-		codec: c.codec,
-	}
-}
-
-func newGenericCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
-	return &genericCodecPerTransportCreator{
-		codec: codec,
-	}
-}
 
 // Compressor defines the interface gRPC uses to compress a message.
 type Compressor interface {
@@ -312,7 +228,7 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 
 // encode serializes msg and prepends the message header. If msg is nil, it
 // generates the message header of 0 message length.
-func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte, error) {
+func encode(c transport.Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte, error) {
 	var b []byte
 	var length uint
 	if msg != nil {
@@ -368,7 +284,7 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 	return nil
 }
 
-func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
+func recv(p *parser, c transport.Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
 	pf, d, err := p.recvMsg(maxMsgSize)
 	if err != nil {
 		return err

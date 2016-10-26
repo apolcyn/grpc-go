@@ -85,7 +85,7 @@ var (
 type dialOptions struct {
 	unaryInt  UnaryClientInterceptor
 	streamInt StreamClientInterceptor
-	codec     Codec
+	codec     transport.Codec
 	cp        Compressor
 	dc        Decompressor
 	bs        backoffStrategy
@@ -100,7 +100,7 @@ type dialOptions struct {
 type DialOption func(*dialOptions)
 
 // WithCodec returns a DialOption which sets a codec for message marshaling and unmarshaling.
-func WithCodec(c Codec) DialOption {
+func WithCodec(c transport.Codec) DialOption {
 	return func(o *dialOptions) {
 		o.codec = c
 	}
@@ -265,9 +265,9 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.codecCreator = newProtoCodecPerTransportCreator(protoCodec{}).onNewTransport()
+		cc.codecCreatorCreator = transport.NewProtoCodecPerTransportCreator(transport.ProtoCodec{})
 	} else {
-		cc.codecCreator = newGenericCodecPerTransportCreator(cc.dopts.codec).onNewTransport()
+		cc.codecCreatorCreator = transport.NewGenericCodecPerTransportCreator(cc.dopts.codec)
 	}
 	if cc.dopts.bs == nil {
 		cc.dopts.bs = DefaultBackoffConfig
@@ -385,9 +385,9 @@ type ClientConn struct {
 	authority string
 	dopts     dialOptions
 
-	mu           sync.RWMutex
-	conns        map[Address]*addrConn
-	codecCreator codecPerTransportCreator
+	mu                  sync.RWMutex
+	conns               map[Address]*addrConn
+	codecCreatorCreator transport.CodecPerTransportCreator
 }
 
 func (cc *ClientConn) lbWatcher() {
@@ -691,7 +691,7 @@ func (ac *addrConn) resetTransport(closeTransport bool) error {
 			Addr:     ac.addr.Addr,
 			Metadata: ac.addr.Metadata,
 		}
-		newTransport, err := transport.NewClientTransport(ctx, sinfo, ac.dopts.copts)
+		newTransport, err := transport.NewClientTransport(ctx, sinfo, ac.dopts.copts, ac.cc.codecCreatorCreator.OnNewTransport())
 		if err != nil {
 			cancel()
 
