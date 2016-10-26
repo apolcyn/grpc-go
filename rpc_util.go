@@ -64,8 +64,19 @@ type Codec interface {
 
 var marshalProtoBufferPool = sync.Pool{
 	New: func() interface{} {
-		return &proto.Buffer{}
+		return newMarshalBuffer()
 	},
+}
+
+type marshalBuffer struct {
+	buffer  *proto.Buffer
+	lastBuf []byte
+}
+
+func newMarshalBuffer() *marshalBuffer {
+	return &marshalBuffer{
+		buffer: &proto.Buffer{},
+	}
 }
 
 var unmarshalProtoBufferPool = sync.Pool{
@@ -80,8 +91,12 @@ type protoCodec struct{}
 func (protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
-	buffer := marshalProtoBufferPool.Get().(*proto.Buffer)
-	buffer.SetBuf(make([]byte, sizeNeeded))
+	buffer := marshalProtoBufferPool.Get().(*marshalBuffer)
+	if buffer.lastBuf != nil && sizeNeeded <= buffer {
+		buffer.SetBuf(buffer.lastBuf)
+	} else {
+		buffer.SetBuf(make([]byte, sizeNeeded))
+	}
 	buffer.Reset()
 	err := buffer.Marshal(protoMsg)
 	if err != nil {
