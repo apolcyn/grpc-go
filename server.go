@@ -1,5 +1,5 @@
 /*
- *
+
  * Copyright 2014, Google Inc.
  * All rights reserved.
  *
@@ -195,15 +195,19 @@ func NewServer(opt ...ServerOption) *Server {
 	for _, o := range opt {
 		o(&opts)
 	}
+	var codecCreatorCreator
 	if opts.codec == nil {
 		// Set the default codec.
-		opts.codec = protoCodec{}
+		codecCreatorCreator = newProtoCodecPerTransportCreator(protoCodec{})
+	} else {
+		codecCreatorCreator = newGenericCodecPerTransportCreator(opts.codec)
 	}
 	s := &Server{
 		lis:   make(map[net.Listener]bool),
 		opts:  opts,
 		conns: make(map[io.Closer]bool),
 		m:     make(map[string]*service),
+		codecCreatorCreator: codecCreatorCreator,
 	}
 	s.cv = sync.NewCond(&s.mu)
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -552,6 +556,8 @@ func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Str
 }
 
 func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.Stream, srv *service, md *MethodDesc, trInfo *traceInfo) (err error) {
+        codec := t.
+
 	if trInfo != nil {
 		defer trInfo.tr.Finish()
 		trInfo.firstLine.client = false
@@ -690,7 +696,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 		t:          t,
 		s:          stream,
 		p:          &parser{r: stream},
-		codec:      s.opts.codec,
+		codec:      t.CodecCreator.onNewStream(),
 		cp:         s.opts.cp,
 		dc:         s.opts.dc,
 		maxMsgSize: s.opts.maxMsgSize,

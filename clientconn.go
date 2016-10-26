@@ -265,7 +265,9 @@ func DialContext(ctx context.Context, target string, opts ...DialOption) (conn *
 
 	// Set defaults.
 	if cc.dopts.codec == nil {
-		cc.dopts.codec = protoCodec{}
+		cc.codecCreator = newProtoCodecPerTransportCreator(protoCodec{}).onNewTransport()
+	} else {
+		cc.codecCreator = newGenericCodecPerTransportCreator(cc.dopts.codec).onNewTransport()
 	}
 	if cc.dopts.bs == nil {
 		cc.dopts.bs = DefaultBackoffConfig
@@ -383,9 +385,9 @@ type ClientConn struct {
 	authority string
 	dopts     dialOptions
 
-	mu    sync.RWMutex
-	conns map[Address]*addrConn
-	codecCreatorCreator codecPerTransportCreator
+	mu           sync.RWMutex
+	conns        map[Address]*addrConn
+	codecCreator codecPerTransportCreator
 }
 
 func (cc *ClientConn) lbWatcher() {

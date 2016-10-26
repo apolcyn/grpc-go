@@ -108,7 +108,6 @@ func newProtoCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
 	}
 }
 
-
 /***************/
 type genericCodecPerStreamCreator struct {
 	codec Codec
@@ -133,7 +132,6 @@ func newGenericCodecPerTransportCreator(codec Codec) codecPerTransportCreator {
 		codec: codec,
 	}
 }
-
 
 // Compressor defines the interface gRPC uses to compress a message.
 type Compressor interface {
