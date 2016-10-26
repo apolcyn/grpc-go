@@ -42,6 +42,7 @@ import (
 	"io/ioutil"
 	"math"
 	"os"
+	"sync"
 
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/net/context"
@@ -61,15 +62,38 @@ type Codec interface {
 	String() string
 }
 
+var protoBufferPool = sync.Pool{
+	New: func() interface{} {
+		return &proto.Buffer{}
+	},
+}
+
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct{}
 
 func (protoCodec) Marshal(v interface{}) ([]byte, error) {
-	return proto.Marshal(v.(proto.Message))
+	var protoMsg = v.(proto.Message)
+	var sizeNeeded = proto.Size(protoMsg)
+	buffer := protoBufferPool.Get().(*proto.Buffer)
+	buffer.SetBuf(make([]byte, sizeNeeded))
+	buffer.Reset()
+	err := buffer.Marshal(protoMsg)
+	if err != nil {
+		panic("something went wrong with unmarshaling")
+	}
+	out := buffer.Bytes()
+	buffer.SetBuf(nil)
+	protoBufferPool.Put(buffer)
+	return out, err
 }
 
 func (protoCodec) Unmarshal(data []byte, v interface{}) error {
-	return proto.Unmarshal(data, v.(proto.Message))
+	buffer := protoBufferPool.Get().(*proto.Buffer)
+	buffer.SetBuf(data)
+	err := buffer.Unmarshal(v.(proto.Message))
+	buffer.SetBuf(nil)
+	protoBufferPool.Put(buffer)
+	return err
 }
 
 func (protoCodec) String() string {
