@@ -91,14 +91,16 @@ type protoCodec struct{}
 func (protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
+	var bufToUse []byte
 	mb := marshalProtoBufferPool.Get().(*marshalBuffer)
 	buffer := mb.buffer
 
 	if mb.lastBuf != nil && sizeNeeded <= len(mb.lastBuf) {
-		buffer.SetBuf(mb.lastBuf)
+		bufToUse = mb.lastBuf
 	} else {
-		buffer.SetBuf(make([]byte, sizeNeeded))
+		bufToUse = make([]byte, sizeNeeded)
 	}
+	buffer.SetBuf(bufToUse)
 	buffer.Reset()
 	err := buffer.Marshal(protoMsg)
 	if err != nil {
@@ -106,6 +108,7 @@ func (protoCodec) Marshal(v interface{}) ([]byte, error) {
 	}
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
+	mb.lastBuf = bufToUse
 	marshalProtoBufferPool.Put(mb)
 	return out, err
 }
