@@ -89,6 +89,7 @@ type workerServer struct {
 }
 
 func (s *workerServer) RunServer(stream testpb.WorkerService_RunServerServer) error {
+	SetBlockProfileRate(100)
 	var bs *benchmarkServer
 	defer func() {
 		// Close benchmark server when stream ends.
