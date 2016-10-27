@@ -100,12 +100,12 @@ type Server struct {
 	cv                  *sync.Cond
 	m                   map[string]*service // service name -> service info
 	events              trace.EventLog
-	codecCreatorCreator transport.CodecPerTransportCreator
+	codecCreatorCreator CodecPerTransportCreator
 }
 
 type options struct {
 	creds                credentials.TransportCredentials
-	codec                transport.Codec
+	codec                Codec
 	cp                   Compressor
 	dc                   Decompressor
 	maxMsgSize           int
@@ -121,7 +121,7 @@ var defaultMaxMsgSize = 1024 * 1024 * 4 // use 4MB as the default message size l
 type ServerOption func(*options)
 
 // CustomCodec returns a ServerOption that sets a codec for message marshaling and unmarshaling.
-func CustomCodec(codec transport.Codec) ServerOption {
+func CustomCodec(codec Codec) ServerOption {
 	return func(o *options) {
 		o.codec = codec
 	}
@@ -195,12 +195,12 @@ func NewServer(opt ...ServerOption) *Server {
 	for _, o := range opt {
 		o(&opts)
 	}
-	var codecCreatorCreator transport.CodecPerTransportCreator
+	var codecCreatorCreator CodecPerTransportCreator
 	if opts.codec == nil {
 		// Set the default codec.
-		codecCreatorCreator = transport.NewProtoCodecPerTransportCreator()
+		codecCreatorCreator = NewProtoCodecPerTransportCreator()
 	} else {
-		codecCreatorCreator = transport.NewGenericCodecPerTransportCreator(opts.codec)
+		codecCreatorCreator = NewGenericCodecPerTransportCreator(opts.codec)
 	}
 	s := &Server{
 		lis:                 make(map[net.Listener]bool),
@@ -427,7 +427,12 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, s.codecCreatorCreator.OnNewTransport())
+	codecManager := s.codecCreatorCreator.OnNewTransport()
+	codecCreator := func() interface{} {
+		return codecManager.CreateCodec()
+	}
+	codecCollector := func(c interface{}) { codecManager.CollectCodec(c.(Codec)) }
+	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, codecCreator, codecCollector)
 	if err != nil {
 		s.mu.Lock()
 		s.errorf("NewServerTransport(%q) failed: %v", c.RemoteAddr(), err)
@@ -486,7 +491,10 @@ func (s *Server) serveUsingHandler(conn net.Conn) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	st, err := transport.NewServerHandlerTransport(w, r, s.codecCreatorCreator.OnNewTransport())
+	codecManager := s.codecCreatorCreator.OnNewTransport()
+	createCodec := func() interface{} { return codecManager.CreateCodec() }
+	collectCodec := func(v interface{}) { codecManager.CollectCodec(v.(Codec)) }
+	st, err := transport.NewServerHandlerTransport(w, r, createCodec, collectCodec)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -541,7 +549,7 @@ func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Str
 	if cp != nil {
 		cbuf = new(bytes.Buffer)
 	}
-	p, err := encode(stream.GetCodec(), msg, cp, cbuf)
+	p, err := encode(stream.GetCodec().(Codec), msg, cp, cbuf)
 	if err != nil {
 		// This typically indicates a fatal issue (e.g., memory
 		// corruption or hardware faults) the application program
@@ -632,7 +640,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 				statusCode = codes.Internal
 				statusDesc = fmt.Sprintf("grpc: server received a message of %d bytes exceeding %d limit", len(req), s.opts.maxMsgSize)
 			}
-			if err := stream.GetCodec().Unmarshal(req, v); err != nil {
+			if err := stream.GetCodec().(Codec).Unmarshal(req, v); err != nil {
 				return err
 			}
 			if trInfo != nil {
@@ -666,7 +674,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Last:  true,
 			Delay: false,
 		}
-		defer func() { t.GetCodecCreator().OnEndStream(stream.GetCodec()) }()
+		defer func() { t.CollectCodec(stream.GetCodec()) }()
 		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
 			switch err := err.(type) {
 			case transport.ConnectionError:
@@ -717,7 +725,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 		}()
 	}
 	var appErr error
-	defer func() { t.GetCodecCreator().OnEndStream(stream.GetCodec()) }()
+	defer func() { t.CollectCodec(stream.GetCodec()) }()
 	if s.opts.streamInt == nil {
 		appErr = sd.Handler(srv.server, ss)
 	} else {

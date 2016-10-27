@@ -106,14 +106,16 @@ type http2Client struct {
 	goAwayID uint32
 	// prevGoAway ID records the Last-Stream-ID in the previous GOAway frame.
 	prevGoAwayID uint32
-	codecCreator CodecPerStreamCreator
+	createCodec  func() interface{}
+	collectCodec func(v interface{})
 }
 
-func (t *http2Client) GetCodecCreator() CodecPerStreamCreator {
-	if t.codecCreator == nil {
-		panic("invalid")
-	}
-	return t.codecCreator
+func (t *http2Client) CreateCodec() interface{} {
+	return t.createCodec()
+}
+
+func (t *http2Client) CollectCodec(v interface{}) {
+	t.collectCodec(v)
 }
 
 func dial(ctx context.Context, fn func(context.Context, string) (net.Conn, error), addr string) (net.Conn, error) {
@@ -154,7 +156,7 @@ func isTemporary(err error) bool {
 // newHTTP2Client constructs a connected ClientTransport to addr based on HTTP2
 // and starts to receive messages on it. Non-nil error returns if construction
 // fails.
-func newHTTP2Client(ctx context.Context, addr TargetInfo, opts ConnectOptions, codecCreator CodecPerStreamCreator) (_ ClientTransport, err error) {
+func newHTTP2Client(ctx context.Context, addr TargetInfo, opts ConnectOptions, createCodec func() interface{}, collectCodec func(v interface{})) (_ ClientTransport, err error) {
 	scheme := "http"
 	conn, err := dial(ctx, opts.Dialer, addr.Addr)
 	if err != nil {
@@ -206,7 +208,8 @@ func newHTTP2Client(ctx context.Context, addr TargetInfo, opts ConnectOptions, c
 		creds:           opts.PerRPCCredentials,
 		maxStreams:      math.MaxInt32,
 		streamSendQuota: defaultWindowSize,
-		codecCreator:    codecCreator,
+		createCodec:     createCodec,
+		collectCodec:    collectCodec,
 	}
 	// Start the reader goroutine for incoming message. Each transport has
 	// a dedicated goroutine which reads HTTP2 frame from network. Then it
@@ -258,7 +261,7 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 		fc:            &inFlow{limit: initialWindowSize},
 		sendQuotaPool: newQuotaPool(int(t.streamSendQuota)),
 		headerChan:    make(chan struct{}),
-		codec:         t.GetCodecCreator().OnNewStream(),
+		codec:         t.CreateCodec(),
 	}
 	t.nextID += 2
 	s.windowHandler = func(n int) {

@@ -228,7 +228,7 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 
 // encode serializes msg and prepends the message header. If msg is nil, it
 // generates the message header of 0 message length.
-func encode(c transport.Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte, error) {
+func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer) ([]byte, error) {
 	var b []byte
 	var length uint
 	if msg != nil {
@@ -284,7 +284,7 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 	return nil
 }
 
-func recv(p *parser, c transport.Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
+func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int) error {
 	pf, d, err := p.recvMsg(maxMsgSize)
 	if err != nil {
 		return err

@@ -294,7 +294,7 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 		}
 		err = toRPCErr(err)
 	}()
-	out, err := encode(cs.s.GetCodec(), m, cs.cp, cs.cbuf)
+	out, err := encode(cs.s.GetCodec().(Codec), m, cs.cp, cs.cbuf)
 	defer func() {
 		if cs.cbuf != nil {
 			cs.cbuf.Reset()
@@ -307,7 +307,7 @@ func (cs *clientStream) SendMsg(m interface{}) (err error) {
 }
 
 func (cs *clientStream) RecvMsg(m interface{}) (err error) {
-	err = recv(cs.p, cs.s.GetCodec(), cs.s, cs.dc, m, math.MaxInt32)
+	err = recv(cs.p, cs.s.GetCodec().(Codec), cs.s, cs.dc, m, math.MaxInt32)
 	defer func() {
 		// err != nil indicates the termination of the stream.
 		if err != nil {
@@ -326,7 +326,7 @@ func (cs *clientStream) RecvMsg(m interface{}) (err error) {
 			return
 		}
 		// Special handling for client streaming rpc.
-		err = recv(cs.p, cs.s.GetCodec(), cs.s, cs.dc, m, math.MaxInt32)
+		err = recv(cs.p, cs.s.GetCodec().(Codec), cs.s, cs.dc, m, math.MaxInt32)
 		cs.closeTransportStream(err)
 		if err == nil {
 			return toRPCErr(errors.New("grpc: client streaming protocol violation: get <nil>, want <EOF>"))
@@ -479,7 +479,7 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 			ss.mu.Unlock()
 		}
 	}()
-	out, err := encode(ss.s.GetCodec(), m, ss.cp, ss.cbuf)
+	out, err := encode(ss.s.GetCodec().(Codec), m, ss.cp, ss.cbuf)
 	defer func() {
 		if ss.cbuf != nil {
 			ss.cbuf.Reset()
@@ -510,7 +510,7 @@ func (ss *serverStream) RecvMsg(m interface{}) (err error) {
 			ss.mu.Unlock()
 		}
 	}()
-	if err := recv(ss.p, ss.s.GetCodec(), ss.s, ss.dc, m, ss.maxMsgSize); err != nil {
+	if err := recv(ss.p, ss.s.GetCodec().(Codec), ss.s, ss.dc, m, ss.maxMsgSize); err != nil {
 		if err == io.EOF {
 			return err
 		}

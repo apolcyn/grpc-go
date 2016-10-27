@@ -207,10 +207,10 @@ type Stream struct {
 	// the status received from the server.
 	statusCode codes.Code
 	statusDesc string
-	codec      Codec
+	codec      interface{}
 }
 
-func (s *Stream) GetCodec() Codec {
+func (s *Stream) GetCodec() interface{} {
 	if s.codec == nil {
 		panic("codec unset")
 	}
@@ -365,8 +365,8 @@ const (
 
 // NewServerTransport creates a ServerTransport with conn or non-nil error
 // if it fails.
-func NewServerTransport(protocol string, conn net.Conn, maxStreams uint32, authInfo credentials.AuthInfo, codecCreator CodecPerStreamCreator) (ServerTransport, error) {
-	return newHTTP2Server(conn, maxStreams, authInfo, codecCreator)
+func NewServerTransport(protocol string, conn net.Conn, maxStreams uint32, authInfo credentials.AuthInfo, createCodec func() interface{}, collectCodec func(interface{})) (ServerTransport, error) {
+	return newHTTP2Server(conn, maxStreams, authInfo, createCodec, collectCodec)
 }
 
 // ConnectOptions covers all relevant options for communicating with the server.
@@ -389,8 +389,8 @@ type TargetInfo struct {
 
 // NewClientTransport establishes the transport with the required ConnectOptions
 // and returns it to the caller.
-func NewClientTransport(ctx context.Context, target TargetInfo, opts ConnectOptions, codecCreator CodecPerStreamCreator) (ClientTransport, error) {
-	return newHTTP2Client(ctx, target, opts, codecCreator)
+func NewClientTransport(ctx context.Context, target TargetInfo, opts ConnectOptions, createCodec func() interface{}, collectCodec func(v interface{})) (ClientTransport, error) {
+	return newHTTP2Client(ctx, target, opts, createCodec, collectCodec)
 }
 
 // Options provides additional hints and information for message
@@ -466,7 +466,9 @@ type ClientTransport interface {
 	// HTTP/2).
 	GoAway() <-chan struct{}
 
-	GetCodecCreator() CodecPerStreamCreator
+	CreateCodec() interface{}
+
+	CollectCodec(v interface{})
 }
 
 // ServerTransport is the common interface for all gRPC server-side transport
@@ -502,7 +504,9 @@ type ServerTransport interface {
 	// Drain notifies the client this ServerTransport stops accepting new RPCs.
 	Drain()
 
-	GetCodecCreator() CodecPerStreamCreator
+	CreateCodec() interface{}
+
+	CollectCodec(v interface{})
 }
 
 // streamErrorf creates an StreamError with the specified error code and description.

@@ -35,7 +35,7 @@
 Package transport defines and implements message oriented communication channel
 to complete various transactions (e.g., an RPC).
 */
-package transport // import "google.golang.org/grpc/transport"
+package grpc
 
 import (
 	"sync"
@@ -55,8 +55,8 @@ type Codec interface {
 }
 
 type CodecPerStreamCreator interface {
-	OnNewStream() Codec
-	OnEndStream(Codec)
+	CreateCodec() Codec
+	CollectCodec(Codec)
 }
 
 type CodecPerTransportCreator interface {
@@ -109,7 +109,7 @@ type ProtoCodecPerStreamCreator struct {
 	protoCodecPool *sync.Pool
 }
 
-func (c ProtoCodecPerStreamCreator) OnNewStream() Codec {
+func (c ProtoCodecPerStreamCreator) CreateCodec() Codec {
 	codec := c.protoCodecPool.Get().(Codec)
 	if codec == nil {
 		codec = &ProtoCodec{
@@ -120,7 +120,7 @@ func (c ProtoCodecPerStreamCreator) OnNewStream() Codec {
 	return codec
 }
 
-func (p ProtoCodecPerStreamCreator) OnEndStream(c Codec) {
+func (p ProtoCodecPerStreamCreator) CollectCodec(c Codec) {
 	p.protoCodecPool.Put(c)
 }
 
@@ -151,11 +151,11 @@ type GenericCodecPerStreamCreator struct {
 	codec Codec
 }
 
-func (c GenericCodecPerStreamCreator) OnNewStream() Codec {
+func (c GenericCodecPerStreamCreator) CreateCodec() Codec {
 	return c.codec
 }
 
-func (c GenericCodecPerStreamCreator) OnEndStream(Codec) {
+func (c GenericCodecPerStreamCreator) CollectCodec(Codec) {
 }
 
 type GenericCodecPerTransportCreator struct {
