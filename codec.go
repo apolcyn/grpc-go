@@ -39,6 +39,7 @@ package grpc
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/golang/protobuf/proto"
 	"google.golang.org/grpc/grpclog"
@@ -70,8 +71,8 @@ type codecManagerCreator interface {
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct {
-	marshalPool   *sync.Pool
-	unmarshalPool *sync.Pool
+	marshalPool   *marshalBufCache
+	unmarshalPool *bufCache
 }
 
 func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
@@ -79,7 +80,7 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var sizeNeeded = proto.Size(protoMsg)
 	var currentSlice []byte
 
-	mb := p.marshalPool.Get().(*marshalBuffer)
+	mb := p.marshalPool.marshalBufAlloc()
 	buffer := mb.buffer
 
 	if mb.lastSlice != nil && sizeNeeded <= len(mb.lastSlice) {
@@ -96,16 +97,16 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
 	mb.lastSlice = currentSlice
-	p.marshalPool.Put(mb)
+	p.marshalPool.marshalBufFree(mb)
 	return out, err
 }
 
 func (p protoCodec) Unmarshal(data []byte, v interface{}) error {
-	buffer := p.unmarshalPool.Get().(*proto.Buffer)
+	buffer := p.unmarshalPool.bufAlloc()
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
 	buffer.SetBuf(nil)
-	p.unmarshalPool.Put(buffer)
+	p.unmarshalPool.bufFree(buffer)
 	return err
 }
 
@@ -118,8 +119,8 @@ func (protoCodec) String() string {
 // The current goal is to keep a pool of buffers per transport connection,
 // to be used on its streams.
 type protoCodecCreator struct {
-	marshalPool   *sync.Pool
-	unmarshalPool *sync.Pool
+	marshalPool   *marshalBufCache
+	unmarshalPool *bufCache
 }
 
 func (c protoCodecCreator) CreateCodec() Codec {
@@ -142,17 +143,8 @@ type protoCodecManagerCreator struct {
 // Called when a new connection is made. Sets up the pool to be used by
 // that connection, for its streams
 func (c protoCodecManagerCreator) onNewTransport() codecCreator {
-	marshalPool := &sync.Pool{
-		New: func() interface{} {
-			return newMarshalBuffer()
-		},
-	}
-
-	unmarshalPool := &sync.Pool{
-		New: func() interface{} {
-			return &proto.Buffer{}
-		},
-	}
+	marshalPool := &marshalBufCache{}
+	unmarshalPool := &bufCache{}
 
 	return &protoCodecCreator{
 		marshalPool:   marshalPool,
@@ -206,4 +198,160 @@ func newGenericCodecManagerCreator(codec Codec) codecManagerCreator {
 	return &genericCodecManagerCreator{
 		codec: codec,
 	}
+}
+
+type marshalBufCache struct {
+	// The ring holds entries in the indexes i%maxPerRing for i in [readIndex, writeIndex).
+	// If readIndex == writeIndex, there is nothing in the ring.
+	// If readIndex+maxPerRing == writeIndex, the ring is full.
+	// The readIndex and writeIndex are atomic values used for synchronization:
+	// the readIndex must be incremented only after removing ring[readIndex%maxPerRing],
+	// because the increment makes that location available for writing,
+	// and the writeIndex must be incremented only after adding ring[writeIndex%maxPerRing],
+	// because the increment makes that location available for reading.
+	// Although the reader and writer communicate via atomic operations,
+	// it is only safe for one such reader and one such writer to be doing
+	// these operations. Readers synchronize on readMu to ensure that
+	// there is only one active reader at a time, and similarly writers synchronize
+	// on writeMu to ensure that there is only one active writer at a time.
+	// Using uint64 for index in order to assume there will never be any overflow.
+	ring       [maxPerRing]*marshalBuffer
+	readMu     sync.Mutex
+	readIndex  uint64
+	writeMu    sync.Mutex
+	writeIndex uint64
+}
+
+const maxPerRing = 300
+
+// push pushes the message m into the buffer if possible.
+// It reports whether the message was stored into the buffer.
+// (If not, the buffer was full.)
+func (s *marshalBufCache) push(m *marshalBuffer) bool {
+	i := atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		return false
+	}
+	s.writeMu.Lock()
+	i = atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		s.writeMu.Unlock()
+		return false
+	}
+	s.ring[i%maxPerRing] = m
+	atomic.StoreUint64(&s.writeIndex, i+1)
+	s.writeMu.Unlock()
+	return true
+}
+
+// pop takes out and returns a message from the ring buffer.
+// It returns nil if the buffer is empty.
+func (s *marshalBufCache) pop() *marshalBuffer {
+	i := atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		return nil
+	}
+	s.readMu.Lock()
+	i = atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		s.readMu.Unlock()
+		return nil
+	}
+	m := s.ring[i%maxPerRing]
+	s.ring[i%maxPerRing] = nil
+	atomic.StoreUint64(&s.readIndex, i+1)
+	s.readMu.Unlock()
+	return m
+}
+
+func (cache *marshalBufCache) marshalBufAlloc() *marshalBuffer {
+	m := cache.pop()
+	if m == nil {
+		m = newMarshalBuffer()
+	}
+	return m
+}
+
+func (s *marshalBufCache) marshalBufFree(mp *marshalBuffer) {
+	if mp == nil {
+		panic("invalid")
+	}
+	s.push(mp)
+}
+
+type bufCache struct {
+	// The ring holds entries in the indexes i%maxPerRing for i in [readIndex, writeIndex).
+	// If readIndex == writeIndex, there is nothing in the ring.
+	// If readIndex+maxPerRing == writeIndex, the ring is full.
+	// The readIndex and writeIndex are atomic values used for synchronization:
+	// the readIndex must be incremented only after removing ring[readIndex%maxPerRing],
+	// because the increment makes that location available for writing,
+	// and the writeIndex must be incremented only after adding ring[writeIndex%maxPerRing],
+	// because the increment makes that location available for reading.
+	// Although the reader and writer communicate via atomic operations,
+	// it is only safe for one such reader and one such writer to be doing
+	// these operations. Readers synchronize on readMu to ensure that
+	// there is only one active reader at a time, and similarly writers synchronize
+	// on writeMu to ensure that there is only one active writer at a time.
+	// Using uint64 for index in order to assume there will never be any overflow.
+	ring       [maxPerRing]*proto.Buffer
+	readMu     sync.Mutex
+	readIndex  uint64
+	writeMu    sync.Mutex
+	writeIndex uint64
+}
+
+// push pushes the message m into the buffer if possible.
+// It reports whether the message was stored into the buffer.
+// (If not, the buffer was full.)
+func (s *bufCache) push(m *proto.Buffer) bool {
+	i := atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		return false
+	}
+	s.writeMu.Lock()
+	i = atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		s.writeMu.Unlock()
+		return false
+	}
+	s.ring[i%maxPerRing] = m
+	atomic.StoreUint64(&s.writeIndex, i+1)
+	s.writeMu.Unlock()
+	return true
+}
+
+// pop takes out and returns a message from the ring buffer.
+// It returns nil if the buffer is empty.
+func (s *bufCache) pop() *proto.Buffer {
+	i := atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		return nil
+	}
+	s.readMu.Lock()
+	i = atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		s.readMu.Unlock()
+		return nil
+	}
+	m := s.ring[i%maxPerRing]
+	s.ring[i%maxPerRing] = nil
+	atomic.StoreUint64(&s.readIndex, i+1)
+	s.readMu.Unlock()
+	return m
+}
+
+func (cache *bufCache) bufAlloc() *proto.Buffer {
+	m := cache.pop()
+	if m == nil {
+		m = &proto.Buffer{}
+	}
+	return m
+}
+
+func (s *bufCache) bufFree(mp *proto.Buffer) {
+	if mp == nil {
+		return
+	}
+	s.push(mp)
 }
