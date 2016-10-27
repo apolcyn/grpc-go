@@ -51,6 +51,13 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
+func noOpCreateCodec() interface{} {
+	return nil
+}
+
+func noOpCollectCodec(v interface{}) {
+}
+
 type server struct {
 	lis        net.Listener
 	port       string
@@ -179,7 +186,7 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32, ht hType) {
 		if err != nil {
 			return
 		}
-		transport, err := NewServerTransport("http2", conn, maxStreams, nil)
+		transport, err := NewServerTransport("http2", conn, maxStreams, nil, noOpCreateCodec, noOpCollectCodec)
 		if err != nil {
 			return
 		}
@@ -248,7 +255,7 @@ func setUp(t *testing.T, port int, maxStreams uint32, ht hType) (*server, Client
 	target := TargetInfo{
 		Addr: addr,
 	}
-	ct, connErr = NewClientTransport(context.Background(), target, ConnectOptions{})
+	ct, connErr = NewClientTransport(context.Background(), target, ConnectOptions{}, noOpCreateCodec, noOpCollectCodec)
 	if connErr != nil {
 		t.Fatalf("failed to create transport: %v", connErr)
 	}

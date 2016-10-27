@@ -39,9 +39,9 @@ package grpc
 
 import (
 	"sync"
-	"errors"
 
 	"github.com/golang/protobuf/proto"
+	"google.golang.org/grpc/grpclog"
 )
 
 // Codec defines the interface gRPC uses to encode and decode messages.
@@ -59,7 +59,7 @@ type codecCreator interface {
 	// Provides a new stream with a codec to be used for it's lifetime
 	CreateCodec() Codec
 	// Returns a Codec to its pool
-	CollectCodec(Codec) error
+	CollectCodec(Codec)
 }
 
 type codecManagerCreator interface {
@@ -130,12 +130,11 @@ func (c protoCodecCreator) CreateCodec() Codec {
 	return codec
 }
 
-func (p protoCodecCreator) CollectCodec(c Codec) error {
+func (p protoCodecCreator) CollectCodec(c Codec) {
 	if c != nil {
 		p.protoCodecPool.Put(c)
-		return nil
 	}
-	return errors.New("nil codec returned to pool")
+	grpclog.Println("received nil codec in collect function")
 }
 
 type protoCodecManagerCreator struct {
@@ -165,7 +164,7 @@ func newProtoCodecManagerCreator() codecManagerCreator {
 // Keeps a buffer used for marshalling, and can also holds on to the last
 // byte slice used for marshalling for reuse
 type marshalBuffer struct {
-	buffer  *proto.Buffer
+	buffer    *proto.Buffer
 	lastSlice []byte
 }
 
@@ -187,8 +186,7 @@ func (c genericCodecCreator) CreateCodec() Codec {
 	return c.codec
 }
 
-func (c genericCodecCreator) CollectCodec(Codec) error {
-	return nil
+func (c genericCodecCreator) CollectCodec(Codec) {
 }
 
 type genericCodecManagerCreator struct {
