@@ -70,8 +70,8 @@ type codecManagerCreator interface {
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct {
-	unmarshalBuffer *proto.Buffer
-	marshalBuffer   *marshalBuffer
+	marshalPool   *sync.Pool
+	unmarshalPool *sync.Pool
 }
 
 func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
@@ -79,7 +79,7 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var sizeNeeded = proto.Size(protoMsg)
 	var currentSlice []byte
 
-	mb := p.marshalBuffer
+	mb := p.marshalPool.Get().(*marshalBuffer)
 	buffer := mb.buffer
 
 	if mb.lastSlice != nil && sizeNeeded <= len(mb.lastSlice) {
@@ -96,14 +96,16 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
 	mb.lastSlice = currentSlice
+	p.marshalPool.Put(mb)
 	return out, err
 }
 
 func (p protoCodec) Unmarshal(data []byte, v interface{}) error {
-	buffer := p.unmarshalBuffer
+	buffer := p.unmarshalPool.Get().(*proto.Buffer)
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
 	buffer.SetBuf(nil)
+	p.unmarshalPool.Put(buffer)
 	return err
 }
 
@@ -116,23 +118,20 @@ func (protoCodec) String() string {
 // The current goal is to keep a pool of buffers per transport connection,
 // to be used on its streams.
 type protoCodecCreator struct {
-	protoCodecPool *sync.Pool
+	marshalPool   *sync.Pool
+	unmarshalPool *sync.Pool
 }
 
 func (c protoCodecCreator) CreateCodec() Codec {
-	codec := c.protoCodecPool.Get().(Codec)
-	if codec == nil {
-		codec = &protoCodec{
-			marshalBuffer:   newMarshalBuffer(),
-			unmarshalBuffer: &proto.Buffer{},
-		}
+	return &protoCodec{
+		marshalPool:   c.marshalPool,
+		unmarshalPool: c.unmarshalPool,
 	}
-	return codec
 }
 
 func (p protoCodecCreator) CollectCodec(c Codec) {
 	if c != nil {
-		p.protoCodecPool.Put(c)
+		return
 	}
 	grpclog.Println("received nil codec in collect function")
 }
@@ -143,17 +142,21 @@ type protoCodecManagerCreator struct {
 // Called when a new connection is made. Sets up the pool to be used by
 // that connection, for its streams
 func (c protoCodecManagerCreator) onNewTransport() codecCreator {
-	protoCodecPool := &sync.Pool{
+	marshalPool := &sync.Pool{
 		New: func() interface{} {
-			return &protoCodec{
-				unmarshalBuffer: &proto.Buffer{},
-				marshalBuffer:   newMarshalBuffer(),
-			}
+			return newMarshalBuffer()
+		},
+	}
+
+	unmarshalPool := &sync.Pool{
+		New: func() interface{} {
+			return &proto.Buffer{}
 		},
 	}
 
 	return &protoCodecCreator{
-		protoCodecPool: protoCodecPool,
+		marshalPool:   marshalPool,
+		unmarshalPool: unmarshalPool,
 	}
 }
 
