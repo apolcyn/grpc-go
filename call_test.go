@@ -164,7 +164,12 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32) {
 		if err != nil {
 			return
 		}
-		st, err := transport.NewServerTransport("http2", conn, maxStreams, nil)
+
+		// no-ops, aren'y used in this test
+		createCodec := func() interface{} { return nil }
+		collectCodec := func(v interface{}) { return }
+
+		st, err := transport.NewServerTransport("http2", conn, maxStreams, nil, createCodec, collectCodec)
 		if err != nil {
 			continue
 		}
