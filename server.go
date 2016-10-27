@@ -100,7 +100,7 @@ type Server struct {
 	cv                  *sync.Cond
 	m                   map[string]*service // service name -> service info
 	events              trace.EventLog
-	codecCreatorCreator CodecPerTransportCreator
+	codecCreatorCreator codecManagerCreator
 }
 
 type options struct {
@@ -195,12 +195,12 @@ func NewServer(opt ...ServerOption) *Server {
 	for _, o := range opt {
 		o(&opts)
 	}
-	var codecCreatorCreator CodecPerTransportCreator
+	var codecCreatorCreator codecManagerCreator
 	if opts.codec == nil {
 		// Set the default codec.
-		codecCreatorCreator = NewProtoCodecPerTransportCreator()
+		codecCreatorCreator = newProtoCodecManagerCreator()
 	} else {
-		codecCreatorCreator = NewGenericCodecPerTransportCreator(opts.codec)
+		codecCreatorCreator = newGenericCodecManagerCreator(opts.codec)
 	}
 	s := &Server{
 		lis:                 make(map[net.Listener]bool),
@@ -427,7 +427,7 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	codecManager := s.codecCreatorCreator.OnNewTransport()
+	codecManager := s.codecCreatorCreator.onNewTransport()
 	codecCreator := func() interface{} {
 		return codecManager.CreateCodec()
 	}
@@ -491,7 +491,7 @@ func (s *Server) serveUsingHandler(conn net.Conn) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	codecManager := s.codecCreatorCreator.OnNewTransport()
+	codecManager := s.codecCreatorCreator.onNewTransport()
 	createCodec := func() interface{} { return codecManager.CreateCodec() }
 	collectCodec := func(v interface{}) { codecManager.CollectCodec(v.(Codec)) }
 	st, err := transport.NewServerHandlerTransport(w, r, createCodec, collectCodec)

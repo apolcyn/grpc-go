@@ -39,6 +39,7 @@ package grpc
 
 import (
 	"sync"
+	"errors"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -54,46 +55,51 @@ type Codec interface {
 	String() string
 }
 
-type CodecPerStreamCreator interface {
+type codecCreator interface {
+	// Provides a new stream with a codec to be used for it's lifetime
 	CreateCodec() Codec
-	CollectCodec(Codec)
+	// Returns a Codec to its pool
+	CollectCodec(Codec) error
 }
 
-type CodecPerTransportCreator interface {
-	OnNewTransport() CodecPerStreamCreator
+type codecManagerCreator interface {
+	// Provides a codecCreator to be used by a connection/transport.
+	// This can control the scope of codec pools, e.g. global, per-conn, none
+	onNewTransport() codecCreator
 }
 
-// ProtoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
-type ProtoCodec struct {
+// protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
+type protoCodec struct {
 	unmarshalBuffer *proto.Buffer
 	marshalBuffer   *marshalBuffer
 }
 
-func (p ProtoCodec) Marshal(v interface{}) ([]byte, error) {
+func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	var protoMsg = v.(proto.Message)
 	var sizeNeeded = proto.Size(protoMsg)
-	var bufToUse []byte
+	var currentSlice []byte
+
 	mb := p.marshalBuffer
 	buffer := mb.buffer
 
-	if mb.lastBuf != nil && sizeNeeded <= len(mb.lastBuf) {
-		bufToUse = mb.lastBuf
+	if mb.lastSlice != nil && sizeNeeded <= len(mb.lastSlice) {
+		currentSlice = mb.lastSlice
 	} else {
-		bufToUse = make([]byte, sizeNeeded)
+		currentSlice = make([]byte, sizeNeeded)
 	}
-	buffer.SetBuf(bufToUse)
+	buffer.SetBuf(currentSlice)
 	buffer.Reset()
 	err := buffer.Marshal(protoMsg)
 	if err != nil {
-		panic("something went wrong with unmarshaling")
+		return nil, err
 	}
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
-	mb.lastBuf = bufToUse
+	mb.lastSlice = currentSlice
 	return out, err
 }
 
-func (p ProtoCodec) Unmarshal(data []byte, v interface{}) error {
+func (p protoCodec) Unmarshal(data []byte, v interface{}) error {
 	buffer := p.unmarshalBuffer
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
@@ -101,18 +107,22 @@ func (p ProtoCodec) Unmarshal(data []byte, v interface{}) error {
 	return err
 }
 
-func (ProtoCodec) String() string {
+func (protoCodec) String() string {
 	return "proto"
 }
 
-type ProtoCodecPerStreamCreator struct {
+// The protoCodec per-stream creators, and per-transport creator "managers"
+// are meant to handle pooling of protoCodec structs and their buffers.
+// The current goal is to keep a pool of buffers per transport connection,
+// to be used on its streams.
+type protoCodecCreator struct {
 	protoCodecPool *sync.Pool
 }
 
-func (c ProtoCodecPerStreamCreator) CreateCodec() Codec {
+func (c protoCodecCreator) CreateCodec() Codec {
 	codec := c.protoCodecPool.Get().(Codec)
 	if codec == nil {
-		codec = &ProtoCodec{
+		codec = &protoCodec{
 			marshalBuffer:   newMarshalBuffer(),
 			unmarshalBuffer: &proto.Buffer{},
 		}
@@ -120,67 +130,79 @@ func (c ProtoCodecPerStreamCreator) CreateCodec() Codec {
 	return codec
 }
 
-func (p ProtoCodecPerStreamCreator) CollectCodec(c Codec) {
-	p.protoCodecPool.Put(c)
+func (p protoCodecCreator) CollectCodec(c Codec) error {
+	if c != nil {
+		p.protoCodecPool.Put(c)
+		return nil
+	}
+	return errors.New("nil codec returned to pool")
 }
 
-type ProtoCodecPerTransportCreator struct {
+type protoCodecManagerCreator struct {
 }
 
-func (c ProtoCodecPerTransportCreator) OnNewTransport() CodecPerStreamCreator {
+// Called when a new connection is made. Sets up the pool to be used by
+// that connection, for its streams
+func (c protoCodecManagerCreator) onNewTransport() codecCreator {
 	protoCodecPool := &sync.Pool{
 		New: func() interface{} {
-			return &ProtoCodec{
+			return &protoCodec{
 				unmarshalBuffer: &proto.Buffer{},
 				marshalBuffer:   newMarshalBuffer(),
 			}
 		},
 	}
 
-	return &ProtoCodecPerStreamCreator{
+	return &protoCodecCreator{
 		protoCodecPool: protoCodecPool,
 	}
 }
 
-func NewProtoCodecPerTransportCreator() CodecPerTransportCreator {
-	return &ProtoCodecPerTransportCreator{}
+func newProtoCodecManagerCreator() codecManagerCreator {
+	return &protoCodecManagerCreator{}
 }
 
-/***************/
-type GenericCodecPerStreamCreator struct {
-	codec Codec
-}
-
-func (c GenericCodecPerStreamCreator) CreateCodec() Codec {
-	return c.codec
-}
-
-func (c GenericCodecPerStreamCreator) CollectCodec(Codec) {
-}
-
-type GenericCodecPerTransportCreator struct {
-	codec Codec
-}
-
-func (c GenericCodecPerTransportCreator) OnNewTransport() CodecPerStreamCreator {
-	return &GenericCodecPerStreamCreator{
-		codec: c.codec,
-	}
-}
-
-func NewGenericCodecPerTransportCreator(codec Codec) CodecPerTransportCreator {
-	return &GenericCodecPerTransportCreator{
-		codec: codec,
-	}
-}
-
+// Keeps a buffer used for marshalling, and can also holds on to the last
+// byte slice used for marshalling for reuse
 type marshalBuffer struct {
 	buffer  *proto.Buffer
-	lastBuf []byte
+	lastSlice []byte
 }
 
 func newMarshalBuffer() *marshalBuffer {
 	return &marshalBuffer{
 		buffer: &proto.Buffer{},
+	}
+}
+
+// generic codec used with user-supplied codec.
+// These are used in the same way as the default protoCodec managers,
+// but result in the single user-supplied codec being used on every
+// connection/stream.
+type genericCodecCreator struct {
+	codec Codec
+}
+
+func (c genericCodecCreator) CreateCodec() Codec {
+	return c.codec
+}
+
+func (c genericCodecCreator) CollectCodec(Codec) error {
+	return nil
+}
+
+type genericCodecManagerCreator struct {
+	codec Codec
+}
+
+func (c genericCodecManagerCreator) onNewTransport() codecCreator {
+	return &genericCodecCreator{
+		codec: c.codec,
+	}
+}
+
+func newGenericCodecManagerCreator(codec Codec) codecManagerCreator {
+	return &genericCodecManagerCreator{
+		codec: codec,
 	}
 }
