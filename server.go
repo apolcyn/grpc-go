@@ -429,10 +429,9 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
 	codecManager := s.codecCreatorCreator.onNewTransport()
 	codecCreator := func() interface{} {
-		return codecManager.CreateCodec()
+		return codecManager.getCodec()
 	}
-	codecCollector := func(c interface{}) { codecManager.CollectCodec(c.(Codec)) }
-	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, codecCreator, codecCollector)
+	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, codecCreator)
 	if err != nil {
 		s.mu.Lock()
 		s.errorf("NewServerTransport(%q) failed: %v", c.RemoteAddr(), err)
@@ -492,9 +491,9 @@ func (s *Server) serveUsingHandler(conn net.Conn) {
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	codecManager := s.codecCreatorCreator.onNewTransport()
-	createCodec := func() interface{} { return codecManager.CreateCodec() }
-	collectCodec := func(v interface{}) { codecManager.CollectCodec(v.(Codec)) }
-	st, err := transport.NewServerHandlerTransport(w, r, createCodec, collectCodec)
+	getCodec := func() interface{} { return codecManager.getCodec() }
+
+	st, err := transport.NewServerHandlerTransport(w, r, getCodec)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -674,7 +673,6 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Last:  true,
 			Delay: false,
 		}
-		defer func() { t.CollectCodec(stream.GetCodec()) }()
 		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
 			switch err := err.(type) {
 			case transport.ConnectionError:
@@ -725,7 +723,6 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 		}()
 	}
 	var appErr error
-	defer func() { t.CollectCodec(stream.GetCodec()) }()
 	if s.opts.streamInt == nil {
 		appErr = sd.Handler(srv.server, ss)
 	} else {

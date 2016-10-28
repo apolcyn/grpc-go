@@ -692,10 +692,9 @@ func (ac *addrConn) resetTransport(closeTransport bool) error {
 			Metadata: ac.addr.Metadata,
 		}
 		codecManager := ac.cc.codecCreatorCreator.onNewTransport()
-		createCodec := func() interface{} { return codecManager.CreateCodec() }
-		collectCodec := func(v interface{}) { codecManager.CollectCodec(v.(Codec)) }
+		getCodec := func() interface{} { return codecManager.getCodec() }
 
-		newTransport, err := transport.NewClientTransport(ctx, sinfo, ac.dopts.copts, createCodec, collectCodec)
+		newTransport, err := transport.NewClientTransport(ctx, sinfo, ac.dopts.copts, getCodec)
 		if err != nil {
 			cancel()
 

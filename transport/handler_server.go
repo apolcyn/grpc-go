@@ -58,7 +58,7 @@ import (
 // NewServerHandlerTransport returns a ServerTransport handling gRPC
 // from inside an http.Handler. It requires that the http Server
 // supports HTTP/2.
-func NewServerHandlerTransport(w http.ResponseWriter, r *http.Request, createCodec func() interface{}, collectCodec func(interface{})) (ServerTransport, error) {
+func NewServerHandlerTransport(w http.ResponseWriter, r *http.Request, getCodec func() interface{}) (ServerTransport, error) {
 	if r.ProtoMajor != 2 {
 		return nil, errors.New("gRPC requires HTTP/2")
 	}
@@ -76,12 +76,11 @@ func NewServerHandlerTransport(w http.ResponseWriter, r *http.Request, createCod
 	}
 
 	st := &serverHandlerTransport{
-		rw:           w,
-		req:          r,
-		closedCh:     make(chan struct{}),
-		writes:       make(chan func()),
-		createCodec:  createCodec,
-		collectCodec: collectCodec,
+		rw:       w,
+		req:      r,
+		closedCh: make(chan struct{}),
+		writes:   make(chan func()),
+		getCodec: getCodec,
 	}
 
 	if v := r.Header.Get("grpc-timeout"); v != "" {
@@ -140,17 +139,12 @@ type serverHandlerTransport struct {
 	// writes is a channel of code to run serialized in the
 	// ServeHTTP (HandleStreams) goroutine. The channel is closed
 	// when WriteStatus is called.
-	writes       chan func()
-	createCodec  func() interface{}
-	collectCodec func(interface{})
+	writes   chan func()
+	getCodec func() interface{}
 }
 
-func (ht *serverHandlerTransport) CreateCodec() interface{} {
-	return ht.createCodec()
-}
-
-func (ht *serverHandlerTransport) CollectCodec(v interface{}) {
-	ht.collectCodec(v)
+func (ht *serverHandlerTransport) GetCodec() interface{} {
+	return ht.getCodec()
 }
 
 func (ht *serverHandlerTransport) Close() error {

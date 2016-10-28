@@ -42,7 +42,6 @@ import (
 	"sync/atomic"
 
 	"github.com/golang/protobuf/proto"
-	"google.golang.org/grpc/grpclog"
 )
 
 // Codec defines the interface gRPC uses to encode and decode messages.
@@ -58,9 +57,7 @@ type Codec interface {
 
 type codecCreator interface {
 	// Provides a new stream with a codec to be used for it's lifetime
-	CreateCodec() Codec
-	// Returns a Codec to its pool
-	CollectCodec(Codec)
+	getCodec() Codec
 }
 
 type codecManagerCreator interface {
@@ -123,18 +120,11 @@ type protoCodecCreator struct {
 	unmarshalPool *bufCache
 }
 
-func (c protoCodecCreator) CreateCodec() Codec {
+func (c protoCodecCreator) getCodec() Codec {
 	return &protoCodec{
 		marshalPool:   c.marshalPool,
 		unmarshalPool: c.unmarshalPool,
 	}
-}
-
-func (p protoCodecCreator) CollectCodec(c Codec) {
-	if c != nil {
-		return
-	}
-	grpclog.Println("received nil codec in collect function")
 }
 
 type protoCodecManagerCreator struct {
@@ -177,11 +167,8 @@ type genericCodecCreator struct {
 	codec Codec
 }
 
-func (c genericCodecCreator) CreateCodec() Codec {
+func (c genericCodecCreator) getCodec() Codec {
 	return c.codec
-}
-
-func (c genericCodecCreator) CollectCodec(Codec) {
 }
 
 type genericCodecManagerCreator struct {
