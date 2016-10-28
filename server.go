@@ -100,7 +100,7 @@ type Server struct {
 	cv                  *sync.Cond
 	m                   map[string]*service // service name -> service info
 	events              trace.EventLog
-	codecCreatorCreator codecManagerCreator
+	codecCreatorCreator codecProviderCreator
 }
 
 type options struct {
@@ -195,12 +195,12 @@ func NewServer(opt ...ServerOption) *Server {
 	for _, o := range opt {
 		o(&opts)
 	}
-	var codecCreatorCreator codecManagerCreator
+	var codecCreatorCreator codecProviderCreator
 	if opts.codec == nil {
 		// Set the default codec.
-		codecCreatorCreator = newProtoCodecManagerCreator()
+		codecCreatorCreator = newProtoCodecProviderCreator()
 	} else {
-		codecCreatorCreator = newGenericCodecManagerCreator(opts.codec)
+		codecCreatorCreator = newGenericCodecProviderCreator(opts.codec)
 	}
 	s := &Server{
 		lis:                 make(map[net.Listener]bool),
@@ -427,11 +427,11 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	codecManager := s.codecCreatorCreator.onNewTransport()
-	codecCreator := func() interface{} {
-		return codecManager.getCodec()
+	codecProvider := s.codecCreatorCreator.onNewTransport()
+	getCodec := func() interface{} {
+		return codecProvider.getCodec()
 	}
-	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, codecCreator)
+	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, getCodec)
 	if err != nil {
 		s.mu.Lock()
 		s.errorf("NewServerTransport(%q) failed: %v", c.RemoteAddr(), err)
@@ -490,8 +490,8 @@ func (s *Server) serveUsingHandler(conn net.Conn) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	codecManager := s.codecCreatorCreator.onNewTransport()
-	getCodec := func() interface{} { return codecManager.getCodec() }
+	codecProvider := s.codecCreatorCreator.onNewTransport()
+	getCodec := func() interface{} { return codecProvider.getCodec() }
 
 	st, err := transport.NewServerHandlerTransport(w, r, getCodec)
 	if err != nil {

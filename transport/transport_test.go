@@ -174,13 +174,13 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32, ht hType) {
 	s.port = p
 	s.conns = make(map[ServerTransport]bool)
 	s.startedErr <- nil
-	codecManagerCreator := newGenericCodecManagerCreator(nil) // codec not used here
+	codecProviderCreator := newGenericCodecProviderCreator(nil) // codec not used here
 	for {
 		conn, err := s.lis.Accept()
 		if err != nil {
 			return
 		}
-		transport, err := NewServerTransport("http2", conn, maxStreams, nil, codecManagerCreator.OnNewTransport())
+		transport, err := NewServerTransport("http2", conn, maxStreams, nil, codecProviderCreator.OnNewTransport())
 		if err != nil {
 			return
 		}

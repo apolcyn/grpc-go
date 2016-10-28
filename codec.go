@@ -55,15 +55,15 @@ type Codec interface {
 	String() string
 }
 
-type codecCreator interface {
+type codecProvider interface {
 	// Provides a new stream with a codec to be used for it's lifetime
 	getCodec() Codec
 }
 
-type codecManagerCreator interface {
-	// Provides a codecCreator to be used by a connection/transport.
+type codecProviderCreator interface {
+	// Provides a codecProvider to be used by a connection/transport.
 	// This can control the scope of codec pools, e.g. global, per-conn, none
-	onNewTransport() func() Codec
+	onNewTransport() codecProvider
 }
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
@@ -111,28 +111,28 @@ func (protoCodec) String() string {
 	return "proto"
 }
 
-// The protoCodec per-stream creators, and per-transport creator "managers"
+// The protoCodec per-stream creators, and per-transport creator "providers"
 // are meant to handle pooling of protoCodec structs and their buffers.
 // The current goal is to keep a pool of buffers per transport connection,
 // to be used on its streams.
-type protoCodecCreator struct {
+type protoCodecProvider struct {
 	marshalPool   *marshalBufCache
 	unmarshalPool *bufCache
 }
 
-func (c protoCodecCreator) getCodec() Codec {
+func (c protoCodecProvider) getCodec() Codec {
 	return &protoCodec{
 		marshalPool:   c.marshalPool,
 		unmarshalPool: c.unmarshalPool,
 	}
 }
 
-type protoCodecManagerCreator struct {
+type protoCodecProviderCreator struct {
 }
 
 // Called when a new connection is made. Sets up the pool to be used by
 // that connection, for its streams
-func (c protoCodecManagerCreator) onNewTransport() codecCreator {
+func (c protoCodecProviderCreator) onNewTransport() codecProvider {
 	marshalPool := &marshalBufCache{
 		cache: &ringCache{},
 	}
@@ -140,16 +140,14 @@ func (c protoCodecManagerCreator) onNewTransport() codecCreator {
 		cache: &ringCache{},
 	}
 
-	codecManager := &protoCodecCreator{
+	return &protoCodecProvider{
 		marshalPool:   marshalPool,
 		unmarshalPool: unmarshalPool,
 	}
-
-	return func() { codecManager.getCodec() }
 }
 
-func newProtoCodecManagerCreator() codecManagerCreator {
-	return &protoCodecManagerCreator{}
+func newProtoCodecProviderCreator() codecProviderCreator {
+	return &protoCodecProviderCreator{}
 }
 
 // Keeps a buffer used for marshalling, and can also holds on to the last
@@ -166,31 +164,29 @@ func newMarshalBuffer() *marshalBuffer {
 }
 
 // generic codec used with user-supplied codec.
-// These are used in the same way as the default protoCodec managers,
+// These are used in the same way as the default protoCodec providers,
 // but result in the single user-supplied codec being used on every
 // connection/stream.
-type genericCodecCreator struct {
+type genericCodecProvider struct {
 	codec Codec
 }
 
-func (c genericCodecCreator) getCodec() Codec {
+func (c genericCodecProvider) getCodec() Codec {
 	return c.codec
 }
 
-type genericCodecManagerCreator struct {
+type genericCodecProviderCreator struct {
 	codec Codec
 }
 
-func (c genericCodecManagerCreator) onNewTransport() codecCreator {
-	codecManager := &genericCodecCreator{
+func (c genericCodecProviderCreator) onNewTransport() codecProvider {
+	return &genericCodecProvider {
 		codec: c.codec,
 	}
-
-	return func() { codecManager.getCodec() }
 }
 
-func newGenericCodecManagerCreator(codec Codec) codecManagerCreator {
-	return &genericCodecManagerCreator{
+func newGenericCodecProviderCreator(codec Codec) codecProviderCreator {
+	return &genericCodecProviderCreator{
 		codec: codec,
 	}
 }
