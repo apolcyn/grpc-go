@@ -385,8 +385,8 @@ type ClientConn struct {
 	authority string
 	dopts     dialOptions
 
-	mu                  sync.RWMutex
-	conns               map[Address]*addrConn
+	mu                   sync.RWMutex
+	conns                map[Address]*addrConn
 	codecProviderCreator codecProviderCreator
 }
 
