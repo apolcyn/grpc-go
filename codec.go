@@ -63,7 +63,7 @@ type codecCreator interface {
 type codecManagerCreator interface {
 	// Provides a codecCreator to be used by a connection/transport.
 	// This can control the scope of codec pools, e.g. global, per-conn, none
-	onNewTransport() codecCreator
+	onNewTransport() func() Codec
 }
 
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
@@ -140,10 +140,12 @@ func (c protoCodecManagerCreator) onNewTransport() codecCreator {
 		cache: &ringCache{},
 	}
 
-	return &protoCodecCreator{
+	codecManager := &protoCodecCreator{
 		marshalPool:   marshalPool,
 		unmarshalPool: unmarshalPool,
 	}
+
+	return func() { codecManager.getCodec() }
 }
 
 func newProtoCodecManagerCreator() codecManagerCreator {
@@ -180,9 +182,11 @@ type genericCodecManagerCreator struct {
 }
 
 func (c genericCodecManagerCreator) onNewTransport() codecCreator {
-	return &genericCodecCreator{
+	codecManager := &genericCodecCreator{
 		codec: c.codec,
 	}
+
+	return func() { codecManager.getCodec() }
 }
 
 func newGenericCodecManagerCreator(codec Codec) codecManagerCreator {

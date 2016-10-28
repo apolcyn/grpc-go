@@ -51,10 +51,6 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func noOpGetCodec() interface{} {
-	return nil
-}
-
 type server struct {
 	lis        net.Listener
 	port       string
@@ -178,12 +174,13 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32, ht hType) {
 	s.port = p
 	s.conns = make(map[ServerTransport]bool)
 	s.startedErr <- nil
+	codecManagerCreator := newGenericCodecManagerCreator(nil) // codec not used here
 	for {
 		conn, err := s.lis.Accept()
 		if err != nil {
 			return
 		}
-		transport, err := NewServerTransport("http2", conn, maxStreams, nil, noOpGetCodec, noOpGetCodec)
+		transport, err := NewServerTransport("http2", conn, maxStreams, nil, codecManagerCreator.OnNewTransport())
 		if err != nil {
 			return
 		}

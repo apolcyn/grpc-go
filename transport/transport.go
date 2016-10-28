@@ -466,6 +466,9 @@ type ClientTransport interface {
 	// HTTP/2).
 	GoAway() <-chan struct{}
 
+	// Get the Codec for this transport. Codec isn't available from transport
+	// package, but it needs to be accessible after getting initialized
+	// for the stream, by the connection.
 	GetCodec() interface{}
 }
 
