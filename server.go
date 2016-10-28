@@ -427,10 +427,7 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 // This is run in its own goroutine (it does network I/O in
 // transport.NewServerTransport).
 func (s *Server) serveNewHTTP2Transport(c net.Conn, authInfo credentials.AuthInfo) {
-	codecProvider := s.codecCreatorCreator.onNewTransport()
-	getCodec := func() interface{} {
-		return codecProvider.getCodec()
-	}
+	getCodec := s.codecCreatorCreator.onNewTransport()
 	st, err := transport.NewServerTransport("http2", c, s.opts.maxConcurrentStreams, authInfo, getCodec)
 	if err != nil {
 		s.mu.Lock()
@@ -490,8 +487,7 @@ func (s *Server) serveUsingHandler(conn net.Conn) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	codecProvider := s.codecCreatorCreator.onNewTransport()
-	getCodec := func() interface{} { return codecProvider.getCodec() }
+	getCodec := s.codecCreatorCreator.onNewTransport()
 
 	st, err := transport.NewServerHandlerTransport(w, r, getCodec)
 	if err != nil {

@@ -48,6 +48,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+func noOpGetCodec() interface{} { 
+	return nil 
+}
+
 func TestHandlerTransport_NewServerHandlerTransport(t *testing.T) {
 	type testCase struct {
 		name    string
