@@ -433,7 +433,7 @@ func (t *http2Server) handleWindowUpdate(f *http2.WindowUpdateFrame) {
 	}
 }
 
-func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) error {
+func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool, needFlush bool) error {
 	first := true
 	endHeaders := false
 	var err error
@@ -452,7 +452,7 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 				EndStream:     endStream,
 				EndHeaders:    endHeaders,
 			}
-			err = t.framer.writeHeaders(endHeaders, p)
+			err = t.framer.writeHeaders(endHeaders, p, needFlush)
 			first = false
 		} else {
 			err = t.framer.writeContinuation(endHeaders, s.id, endHeaders, b.Next(size))
@@ -466,7 +466,7 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 }
 
 // WriteHeader sends the header metedata md back to the client.
-func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
+func (t *http2Server) WriteHeader(s *Stream, md metadata.MD, needFlush bool) error {
 	s.mu.Lock()
 	if s.headerOk || s.state == streamDone {
 		s.mu.Unlock()
@@ -500,7 +500,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 			t.hEnc.WriteField(hpack.HeaderField{Name: k, Value: entry})
 		}
 	}
-	if err := t.writeHeaders(s, t.hBuf, false); err != nil {
+	if err := t.writeHeaders(s, t.hBuf, false, needFlush); err != nil {
 		return err
 	}
 	t.writableChan <- 0
@@ -527,7 +527,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 	s.mu.Unlock()
 
 	if !headersSent && hasHeader {
-		t.WriteHeader(s, nil)
+		t.WriteHeader(s, nil, false) // TODO: apolcyn, revisit flush
 		headersSent = true
 	}
 
@@ -555,7 +555,8 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 			t.hEnc.WriteField(hpack.HeaderField{Name: k, Value: entry})
 		}
 	}
-	if err := t.writeHeaders(s, t.hBuf, true); err != nil {
+	// TODO: apolcyn, revisit flush
+	if err := t.writeHeaders(s, t.hBuf, true, true); err != nil {
 		t.Close()
 		return err
 	}
@@ -566,7 +567,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 
 // Write converts the data into HTTP2 data frame and sends it out. Non-nil error
 // is returns if it fails (e.g., framing error, transport error).
-func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
+func (t *http2Server) Write(s *Stream, data []byte, opts *Options, needFlush bool) error {
 	// TODO(zhaoq): Support multi-writers for a single stream.
 	var writeHeaderFrame bool
 	s.mu.Lock()
@@ -579,7 +580,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	}
 	s.mu.Unlock()
 	if writeHeaderFrame {
-		t.WriteHeader(s, nil)
+		t.WriteHeader(s, nil, needFlush)
 	}
 	r := bytes.NewBuffer(data)
 	for {
@@ -649,11 +650,11 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
 			forceFlush = true
 		}
-		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
+		if err := t.framer.writeData(forceFlush && needFlush, s.id, false, p, needFlush); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
+		if t.framer.adjustNumWriters(-1) == 0 && needFlush {
 			t.framer.flushWrite()
 		}
 		t.writableChan <- 0

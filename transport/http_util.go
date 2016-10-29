@@ -400,11 +400,11 @@ func (f *framer) writeContinuation(forceFlush bool, streamID uint32, endHeaders 
 	return nil
 }
 
-func (f *framer) writeData(forceFlush bool, streamID uint32, endStream bool, data []byte) error {
+func (f *framer) writeData(forceFlush bool, streamID uint32, endStream bool, data []byte, needFlush bool) error {
 	if err := f.fr.WriteData(streamID, endStream, data); err != nil {
 		return err
 	}
-	if forceFlush {
+	if forceFlush && needFlush {
 		return f.writer.Flush()
 	}
 	return nil
@@ -420,11 +420,11 @@ func (f *framer) writeGoAway(forceFlush bool, maxStreamID uint32, code http2.Err
 	return nil
 }
 
-func (f *framer) writeHeaders(forceFlush bool, p http2.HeadersFrameParam) error {
+func (f *framer) writeHeaders(forceFlush bool, p http2.HeadersFrameParam, needFlush bool) error {
 	if err := f.fr.WriteHeaders(p); err != nil {
 		return err
 	}
-	if forceFlush {
+	if forceFlush && needFlush {
 		return f.writer.Flush()
 	}
 	return nil

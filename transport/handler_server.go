@@ -246,7 +246,7 @@ func (ht *serverHandlerTransport) writeCommonHeaders(s *Stream) {
 	}
 }
 
-func (ht *serverHandlerTransport) Write(s *Stream, data []byte, opts *Options) error {
+func (ht *serverHandlerTransport) Write(s *Stream, data []byte, opts *Options, needFlush bool) error {
 	return ht.do(func() {
 		ht.writeCommonHeaders(s)
 		ht.rw.Write(data)
@@ -256,7 +256,7 @@ func (ht *serverHandlerTransport) Write(s *Stream, data []byte, opts *Options) e
 	})
 }
 
-func (ht *serverHandlerTransport) WriteHeader(s *Stream, md metadata.MD) error {
+func (ht *serverHandlerTransport) WriteHeader(s *Stream, md metadata.MD, needFlush bool) error {
 	return ht.do(func() {
 		ht.writeCommonHeaders(s)
 		h := ht.rw.Header()
@@ -270,7 +270,10 @@ func (ht *serverHandlerTransport) WriteHeader(s *Stream, md metadata.MD) error {
 			}
 		}
 		ht.rw.WriteHeader(200)
-		ht.rw.(http.Flusher).Flush()
+		// TODO: apolcyn, revisit flush
+		if needFlush {
+			ht.rw.(http.Flusher).Flush()
+		}
 	})
 }
 

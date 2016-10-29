@@ -539,7 +539,7 @@ func (s *Server) removeConn(c io.Closer) {
 	}
 }
 
-func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts *transport.Options) error {
+func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Stream, msg interface{}, cp Compressor, opts *transport.Options, needFlush bool) error {
 	var cbuf *bytes.Buffer
 	if cp != nil {
 		cbuf = new(bytes.Buffer)
@@ -555,7 +555,7 @@ func (s *Server) sendResponse(t transport.ServerTransport, stream *transport.Str
 		// the optimal option.
 		grpclog.Fatalf("grpc: Server failed to encode response %v", err)
 	}
-	return t.Write(stream, p, opts)
+	return t.Write(stream, p, opts, needFlush)
 }
 
 func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.Stream, srv *service, md *MethodDesc, trInfo *traceInfo) (err error) {
@@ -669,7 +669,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Last:  true,
 			Delay: false,
 		}
-		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
+		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts, false); err != nil {
 			switch err := err.(type) {
 			case transport.ConnectionError:
 				// Nothing to do here.
@@ -922,7 +922,7 @@ func SetHeader(ctx context.Context, md metadata.MD) error {
 
 // SendHeader sends header metadata. It may be called at most once.
 // The provided md and headers set by SetHeader() will be sent.
-func SendHeader(ctx context.Context, md metadata.MD) error {
+func SendHeader(ctx context.Context, md metadata.MD, needFlush bool) error {
 	stream, ok := transport.StreamFromContext(ctx)
 	if !ok {
 		return Errorf(codes.Internal, "grpc: failed to fetch the stream from the context %v", ctx)
@@ -931,7 +931,7 @@ func SendHeader(ctx context.Context, md metadata.MD) error {
 	if t == nil {
 		grpclog.Fatalf("grpc: SendHeader: %v has no ServerTransport to send header metadata.", stream)
 	}
-	if err := t.WriteHeader(stream, md); err != nil {
+	if err := t.WriteHeader(stream, md, needFlush); err != nil {
 		return toRPCErr(err)
 	}
 	return nil

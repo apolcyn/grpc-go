@@ -443,7 +443,7 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (_ *Strea
 			// Do a force flush for the buffered frames iff it is the last headers frame
 			// and there is header metadata to be sent. Otherwise, there is flushing until
 			// the corresponding data frame is written.
-			err = t.framer.writeHeaders(flush, p)
+			err = t.framer.writeHeaders(flush, p, true) // TODO: apolcyn, revisit flush
 			first = false
 		} else {
 			// Sends Continuation frames for the leftover headers.
@@ -583,7 +583,7 @@ func (t *http2Client) GracefulClose() error {
 // should proceed only if Write returns nil.
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
 // if it improves the performance.
-func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
+func (t *http2Client) Write(s *Stream, data []byte, opts *Options, needFlush bool) error {
 	r := bytes.NewBuffer(data)
 	for {
 		var p []byte
@@ -663,11 +663,11 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 		// If WriteData fails, all the pending streams will be handled
 		// by http2Client.Close(). No explicit CloseStream() needs to be
 		// invoked.
-		if err := t.framer.writeData(forceFlush, s.id, endStream, p); err != nil {
+		if err := t.framer.writeData(forceFlush && needFlush, s.id, endStream, p, needFlush); err != nil {
 			t.notifyError(err)
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
+		if t.framer.adjustNumWriters(-1) == 0 && needFlush {
 			t.framer.flushWrite()
 		}
 		t.writableChan <- 0

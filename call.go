@@ -76,7 +76,7 @@ func recvResponse(dopts dialOptions, t transport.ClientTransport, c *callInfo, s
 }
 
 // sendRequest writes out various information of an RPC such as Context and Message.
-func sendRequest(ctx context.Context, compressor Compressor, callHdr *transport.CallHdr, t transport.ClientTransport, args interface{}, opts *transport.Options) (_ *transport.Stream, err error) {
+func sendRequest(ctx context.Context, compressor Compressor, callHdr *transport.CallHdr, t transport.ClientTransport, args interface{}, opts *transport.Options, needFlush bool) (_ *transport.Stream, err error) {
 	stream, err := t.NewStream(ctx, callHdr)
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func sendRequest(ctx context.Context, compressor Compressor, callHdr *transport.
 	if err != nil {
 		return nil, Errorf(codes.Internal, "grpc: %v", err)
 	}
-	err = t.Write(stream, outBuf, opts)
+	err = t.Write(stream, outBuf, opts, needFlush)
 	// t.NewStream(...) could lead to an early rejection of the RPC (e.g., the service/method
 	// does not exist.) so that t.Write could get io.EOF from wait(...). Leave the following
 	// recvResponse to get the final status.
@@ -188,7 +188,7 @@ func invoke(ctx context.Context, method string, args, reply interface{}, cc *Cli
 		if c.traceInfo.tr != nil {
 			c.traceInfo.tr.LazyLog(&payload{sent: true, msg: args}, true)
 		}
-		stream, err = sendRequest(ctx, cc.dopts.cp, callHdr, t, args, topts)
+		stream, err = sendRequest(ctx, cc.dopts.cp, callHdr, t, args, topts, true)
 		if err != nil {
 			if put != nil {
 				put()

@@ -446,7 +446,7 @@ type ClientTransport interface {
 
 	// Write sends the data for the given stream. A nil stream indicates
 	// the write is to be performed on the transport as a whole.
-	Write(s *Stream, data []byte, opts *Options) error
+	Write(s *Stream, data []byte, opts *Options, needFlush bool) error
 
 	// NewStream creates a Stream for an RPC.
 	NewStream(ctx context.Context, callHdr *CallHdr) (*Stream, error)
@@ -486,11 +486,11 @@ type ServerTransport interface {
 
 	// WriteHeader sends the header metadata for the given stream.
 	// WriteHeader may not be called on all streams.
-	WriteHeader(s *Stream, md metadata.MD) error
+	WriteHeader(s *Stream, md metadata.MD, needFlush bool) error
 
 	// Write sends the data for the given stream.
 	// Write may not be called on all streams.
-	Write(s *Stream, data []byte, opts *Options) error
+	Write(s *Stream, data []byte, opts *Options, needFlush bool) error
 
 	// WriteStatus sends the status of a stream to the client.
 	// WriteStatus is the final call made on a stream and always
