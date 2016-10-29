@@ -163,7 +163,8 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 			return nil, Errorf(codes.Internal, "%v", err)
 		}
 
-		s, err = t.NewStream(ctx, callHdr)
+		// need to send metadata right away
+		s, err = t.NewStream(ctx, callHdr, transport.Options{}) 
 		if err != nil {
 			if put != nil {
 				put()
@@ -453,7 +454,7 @@ func (ss *serverStream) SetHeader(md metadata.MD) error {
 }
 
 func (ss *serverStream) SendHeader(md metadata.MD) error {
-	return ss.t.WriteHeader(ss.s, md)
+	return ss.t.WriteHeader(ss.s, md, transport.Options{})
 }
 
 func (ss *serverStream) SetTrailer(md metadata.MD) {
@@ -489,7 +490,7 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 		err = Errorf(codes.Internal, "grpc: %v", err)
 		return err
 	}
-	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false}); err != nil {
+	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false, Delay: false}); err != nil {
 		return toRPCErr(err)
 	}
 	return nil

@@ -41,6 +41,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -89,6 +90,11 @@ type http2Server struct {
 	streamSendQuota uint32
 
 	getCodec func() interface{}
+	numCompletingUnaryCalls int32
+}
+
+func (t *http2Server) AdjustNumCompletingUnaryCalls(count int32) int32 {
+	return atomic.AddInt32(&t.numCompletingUnaryCalls, count)
 }
 
 func (t *http2Server) GetCodec() interface{} {
@@ -433,7 +439,7 @@ func (t *http2Server) handleWindowUpdate(f *http2.WindowUpdateFrame) {
 	}
 }
 
-func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) error {
+func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool, opts Options) error {
 	first := true
 	endHeaders := false
 	var err error
@@ -445,6 +451,10 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 		} else {
 			endHeaders = true
 		}
+		var forceFlush bool
+		if endHeaders && !opts.Delay {
+			forceFlush = true
+		}
 		if first {
 			p := http2.HeadersFrameParam{
 				StreamID:      s.id,
@@ -452,10 +462,10 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 				EndStream:     endStream,
 				EndHeaders:    endHeaders,
 			}
-			err = t.framer.writeHeaders(endHeaders, p)
+			err = t.framer.writeHeaders(forceFlush, p)
 			first = false
 		} else {
-			err = t.framer.writeContinuation(endHeaders, s.id, endHeaders, b.Next(size))
+			err = t.framer.writeContinuation(forceFlush, s.id, endHeaders, b.Next(size))
 		}
 		if err != nil {
 			t.Close()
@@ -466,7 +476,7 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 }
 
 // WriteHeader sends the header metedata md back to the client.
-func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
+func (t *http2Server) WriteHeader(s *Stream, md metadata.MD, opts Options) error {
 	s.mu.Lock()
 	if s.headerOk || s.state == streamDone {
 		s.mu.Unlock()
@@ -500,7 +510,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 			t.hEnc.WriteField(hpack.HeaderField{Name: k, Value: entry})
 		}
 	}
-	if err := t.writeHeaders(s, t.hBuf, false); err != nil {
+	if err := t.writeHeaders(s, t.hBuf, false, opts); err != nil {
 		return err
 	}
 	t.writableChan <- 0
@@ -511,7 +521,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 // There is no further I/O operations being able to perform on this stream.
 // TODO(zhaoq): Now it indicates the end of entire stream. Revisit if early
 // OK is adopted.
-func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error {
+func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string, opts Options) error {
 	var headersSent, hasHeader bool
 	s.mu.Lock()
 	if s.state == streamDone {
@@ -527,7 +537,8 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 	s.mu.Unlock()
 
 	if !headersSent && hasHeader {
-		t.WriteHeader(s, nil)
+		// Wait on writing the status until flushing
+		t.WriteHeader(s, nil, Options{Delay:true})
 		headersSent = true
 	}
 
@@ -555,7 +566,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 			t.hEnc.WriteField(hpack.HeaderField{Name: k, Value: entry})
 		}
 	}
-	if err := t.writeHeaders(s, t.hBuf, true); err != nil {
+	if err := t.writeHeaders(s, t.hBuf, true, opts); err != nil {
 		t.Close()
 		return err
 	}
@@ -579,7 +590,9 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	}
 	s.mu.Unlock()
 	if writeHeaderFrame {
-		t.WriteHeader(s, nil)
+		// Let metadata and messages get combined to one buffer flush if possible.
+		// But use the options because we might need to flush with streaming calls.
+		t.WriteHeader(s, nil, *opts)
 	}
 	r := bytes.NewBuffer(data)
 	for {
@@ -646,7 +659,8 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		default:
 		}
 		var forceFlush bool
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
+		// Don't flush at all if the delay flag was set
+		if !opts.Delay && r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
 			forceFlush = true
 		}
 		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
@@ -654,7 +668,9 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
 		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
+			if !opts.Delay {
+				t.framer.flushWrite()
+			}
 		}
 		t.writableChan <- 0
 	}

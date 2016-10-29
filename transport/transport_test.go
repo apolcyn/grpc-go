@@ -99,7 +99,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
 	// send a response back to the client.
 	h.t.Write(s, resp, &Options{})
 	// send the trailer to end the stream.
-	h.t.WriteStatus(s, codes.OK, "")
+	h.t.WriteStatus(s, codes.OK, "", Options)
 }
 
 // handleStreamSuspension blocks until s.ctx is canceled.
@@ -141,14 +141,14 @@ func (h *testStreamHandler) handleStreamMisbehave(t *testing.T, s *Stream) {
 
 func (h *testStreamHandler) handleStreamEncodingRequiredStatus(t *testing.T, s *Stream) {
 	// raw newline is not accepted by http2 framer so it must be encoded.
-	h.t.WriteStatus(s, encodingTestStatusCode, encodingTestStatusDesc)
+	h.t.WriteStatus(s, encodingTestStatusCode, encodingTestStatusDesc, Options)
 }
 
 func (h *testStreamHandler) handleStreamInvalidHeaderField(t *testing.T, s *Stream) {
 	<-h.t.writableChan
 	h.t.hBuf.Reset()
 	h.t.hEnc.WriteField(hpack.HeaderField{Name: "content-type", Value: expectedInvalidHeaderField})
-	if err := h.t.writeHeaders(s, h.t.hBuf, false); err != nil {
+	if err := h.t.writeHeaders(s, h.t.hBuf, false, Options{}); err != nil {
 		t.Fatalf("Failed to write headers: %v", err)
 	}
 	h.t.writableChan <- 0
@@ -261,14 +261,14 @@ func TestClientSendAndReceive(t *testing.T) {
 		Host:   "localhost",
 		Method: "foo.Small",
 	}
-	s1, err1 := ct.NewStream(context.Background(), callHdr)
+	s1, err1 := ct.NewStream(context.Background(), callHdr, Options{})
 	if err1 != nil {
 		t.Fatalf("failed to open stream: %v", err1)
 	}
 	if s1.id != 1 {
 		t.Fatalf("wrong stream id: %d", s1.id)
 	}
-	s2, err2 := ct.NewStream(context.Background(), callHdr)
+	s2, err2 := ct.NewStream(context.Background(), callHdr, Options{})
 	if err2 != nil {
 		t.Fatalf("failed to open stream: %v", err2)
 	}
@@ -308,7 +308,7 @@ func performOneRPC(ct ClientTransport) {
 		Host:   "localhost",
 		Method: "foo.Small",
 	}
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		return
 	}
@@ -356,9 +356,9 @@ func TestLargeMessage(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, err := ct.NewStream(context.Background(), callHdr)
+			s, err := ct.NewStream(context.Background(), callHdr, Options{})
 			if err != nil {
-				t.Errorf("%v.NewStream(_, _) = _, %v, want _, <nil>", ct, err)
+				t.Errorf("%v.NewStream(_, _, _) = _, %v, want _, <nil>", ct, err)
 			}
 			if err := ct.Write(s, expectedRequestLarge, &Options{Last: true, Delay: false}); err != nil && err != io.EOF {
 				t.Errorf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
@@ -383,9 +383,9 @@ func TestGracefulClose(t *testing.T) {
 		Host:   "localhost",
 		Method: "foo.Small",
 	}
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
-		t.Fatalf("%v.NewStream(_, _) = _, %v, want _, <nil>", ct, err)
+		t.Fatalf("%v.NewStream(_, _, _) = _, %v, want _, <nil>", ct, err)
 	}
 	if err = ct.GracefulClose(); err != nil {
 		t.Fatalf("%v.GracefulClose() = %v, want <nil>", ct, err)
@@ -396,8 +396,8 @@ func TestGracefulClose(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := ct.NewStream(context.Background(), callHdr); err != ErrStreamDrain {
-				t.Errorf("%v.NewStream(_, _) = _, %v, want _, %v", ct, err, ErrStreamDrain)
+			if _, err := ct.NewStream(context.Background(), callHdr, Options{}); err != ErrStreamDrain {
+				t.Errorf("%v.NewStream(_, _, _) = _, %v, want _, %v", ct, err, ErrStreamDrain)
 			}
 		}()
 	}
@@ -429,7 +429,7 @@ func TestLargeMessageSuspension(t *testing.T) {
 	}
 	// Set a long enough timeout for writing a large message out.
 	ctx, _ := context.WithTimeout(context.Background(), time.Second)
-	s, err := ct.NewStream(ctx, callHdr)
+	s, err := ct.NewStream(ctx, callHdr, Options{})
 	if err != nil {
 		t.Fatalf("failed to open stream: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestMaxStreams(t *testing.T) {
 		Method: "foo.Large",
 	}
 	// Have a pending stream which takes all streams quota.
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
@@ -513,7 +513,7 @@ func TestMaxStreams(t *testing.T) {
 	default:
 		t.Fatalf("streamsQuota.acquire() is not readable.")
 	}
-	if _, err := ct.NewStream(context.Background(), callHdr); err != nil {
+	if _, err := ct.NewStream(context.Background(), callHdr, Options{}); err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
 	ct.Close()
@@ -549,7 +549,7 @@ func TestServerContextCanceledOnClosedConnection(t *testing.T) {
 	if !ok {
 		t.Fatalf("Failed to convert %v to *http2Client", ct)
 	}
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
@@ -614,7 +614,7 @@ func TestServerWithMisbehavedClient(t *testing.T) {
 		t.Fatalf("Failed to convert %v to *http2Client", ct)
 	}
 	// Test server behavior for violation of stream flow control window size restriction.
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
@@ -671,7 +671,7 @@ func TestServerWithMisbehavedClient(t *testing.T) {
 	// Keep creating new streams until the connection window is drained on the server and
 	// the server tears down the connection.
 	for {
-		s, err := ct.NewStream(context.Background(), callHdr)
+		s, err := ct.NewStream(context.Background(), callHdr, Options{})
 		if err != nil {
 			// The server tears down the connection.
 			break
@@ -695,7 +695,7 @@ func TestClientWithMisbehavedServer(t *testing.T) {
 		t.Fatalf("Failed to convert %v to *http2Client", ct)
 	}
 	// Test the logic for the violation of stream flow control window size restriction.
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		t.Fatalf("Failed to open stream: %v", err)
 	}
@@ -726,7 +726,7 @@ func TestClientWithMisbehavedServer(t *testing.T) {
 	// to violate flow control window size of the connection.
 	callHdr.Method = "foo.Connection"
 	for i := 0; i < int(initialConnWindowSize/initialWindowSize+10); i++ {
-		s, err := ct.NewStream(context.Background(), callHdr)
+		s, err := ct.NewStream(context.Background(), callHdr, Options{})
 		if err != nil {
 			break
 		}
@@ -751,7 +751,7 @@ func TestEncodingRequiredStatus(t *testing.T) {
 		Host:   "localhost",
 		Method: "foo",
 	}
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		return
 	}
@@ -779,7 +779,7 @@ func TestInvalidHeaderField(t *testing.T) {
 		Host:   "localhost",
 		Method: "foo",
 	}
-	s, err := ct.NewStream(context.Background(), callHdr)
+	s, err := ct.NewStream(context.Background(), callHdr, Options{})
 	if err != nil {
 		return
 	}

@@ -302,7 +302,7 @@ func TestHandlerTransport_HandleStreams(t *testing.T) {
 			t.Errorf("stream method = %q; want %q", s.method, want)
 		}
 		st.bodyw.Close() // no body
-		st.ht.WriteStatus(s, codes.OK, "")
+		st.ht.WriteStatus(s, codes.OK, "", transport.Options{})
 	}
 	st.ht.HandleStreams(func(s *Stream) { go handleStream(s) })
 	wantHeader := http.Header{
@@ -329,7 +329,7 @@ func TestHandlerTransport_HandleStreams_InvalidArgument(t *testing.T) {
 func handleStreamCloseBodyTest(t *testing.T, statusCode codes.Code, msg string) {
 	st := newHandleStreamTest(t)
 	handleStream := func(s *Stream) {
-		st.ht.WriteStatus(s, statusCode, msg)
+		st.ht.WriteStatus(s, statusCode, msg, transport.Options{})
 	}
 	st.ht.HandleStreams(func(s *Stream) { go handleStream(s) })
 	wantHeader := http.Header{
@@ -377,7 +377,7 @@ func TestHandlerTransport_HandleStreams_Timeout(t *testing.T) {
 			t.Errorf("ctx.Err = %v; want %v", err, context.DeadlineExceeded)
 			return
 		}
-		ht.WriteStatus(s, codes.DeadlineExceeded, "too slow")
+		ht.WriteStatus(s, codes.DeadlineExceeded, "too slow", transport.Options)
 	}
 	ht.HandleStreams(func(s *Stream) { go runStream(s) })
 	wantHeader := http.Header{
