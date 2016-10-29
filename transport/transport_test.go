@@ -99,7 +99,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
 	// send a response back to the client.
 	h.t.Write(s, resp, &Options{})
 	// send the trailer to end the stream.
-	h.t.WriteStatus(s, codes.OK, "")
+	h.t.WriteStatus(s, codes.OK, "", Options{})
 }
 
 // handleStreamSuspension blocks until s.ctx is canceled.
@@ -141,14 +141,14 @@ func (h *testStreamHandler) handleStreamMisbehave(t *testing.T, s *Stream) {
 
 func (h *testStreamHandler) handleStreamEncodingRequiredStatus(t *testing.T, s *Stream) {
 	// raw newline is not accepted by http2 framer so it must be encoded.
-	h.t.WriteStatus(s, encodingTestStatusCode, encodingTestStatusDesc)
+	h.t.WriteStatus(s, encodingTestStatusCode, encodingTestStatusDesc, Options{})
 }
 
 func (h *testStreamHandler) handleStreamInvalidHeaderField(t *testing.T, s *Stream) {
 	<-h.t.writableChan
 	h.t.hBuf.Reset()
 	h.t.hEnc.WriteField(hpack.HeaderField{Name: "content-type", Value: expectedInvalidHeaderField})
-	if err := h.t.writeHeaders(s, h.t.hBuf, false); err != nil {
+	if err := h.t.writeHeaders(s, h.t.hBuf, false, Options{}); err != nil {
 		t.Fatalf("Failed to write headers: %v", err)
 	}
 	h.t.writableChan <- 0

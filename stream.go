@@ -456,7 +456,7 @@ func (ss *serverStream) SetHeader(md metadata.MD) error {
 }
 
 func (ss *serverStream) SendHeader(md metadata.MD) error {
-	return ss.t.WriteHeader(ss.s, md)
+	return ss.t.WriteHeader(ss.s, md, transport.Options{})
 }
 
 func (ss *serverStream) SetTrailer(md metadata.MD) {
@@ -492,7 +492,7 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 		err = Errorf(codes.Internal, "grpc: %v", err)
 		return err
 	}
-	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false}); err != nil {
+	if err := ss.t.Write(ss.s, out, &transport.Options{Last: false, Delay: false}); err != nil {
 		return toRPCErr(err)
 	}
 	return nil
