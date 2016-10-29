@@ -580,7 +580,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options, needFlush boo
 	}
 	s.mu.Unlock()
 	if writeHeaderFrame {
-		t.WriteHeader(s, nil, needFlush)
+		t.WriteHeader(s, nil, false)
 	}
 	r := bytes.NewBuffer(data)
 	for {
