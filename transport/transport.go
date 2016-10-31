@@ -488,7 +488,7 @@ type ServerTransport interface {
 	// WriteHeader may not be called on all streams.
 	WriteHeader(s *Stream, md metadata.MD, needFlush bool) error
 
-	ForceFlush()
+	ForceFlush(s *Stream) error
 	AdjustNumActiveUnaryCalls(count int32) int32
 
 	// Write sends the data for the given stream.

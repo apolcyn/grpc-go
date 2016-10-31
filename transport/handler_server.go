@@ -148,7 +148,7 @@ func (ht *serverHandlerTransport) AdjustNumActiveUnaryCalls(count int32) int32 {
 	return 0 // a no-op
 }
 
-func (ht *serverHandlerTransport) ForceFlush() {
+func (ht *serverHandlerTransport) ForceFlush(s *Stream) error {
 	panic("unimplemented")
 }
 

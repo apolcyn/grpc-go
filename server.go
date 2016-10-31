@@ -647,7 +647,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		t.AdjustNumActiveUnaryCalls(1)
 		defer func() {
 			if t.AdjustNumActiveUnaryCalls(-1) == 0 {
-				t.ForceFlush()
+				t.ForceFlush(stream)
 			}
 		}()
 		if appErr != nil {

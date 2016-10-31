@@ -93,12 +93,16 @@ type http2Server struct {
 	numActiveUnaryCalls int32
 }
 
-func (t *http2Server) ForceFlush() {
-	select {
-	case <-t.writableChan:
-		t.framer.flushWrite()
+func (t *http2Server) ForceFlush(s *Stream) error {
+	if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
+		if _, ok := err.(StreamError); ok {
+			t.controlBuf.put(&flushIO{})
+		}
+		return err
 	}
+	t.framer.flushWrite()
 	t.writableChan <- 0
+	return nil
 }
 
 func (t *http2Server) AdjustNumActiveUnaryCalls(count int32) int32 {
