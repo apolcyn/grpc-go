@@ -41,6 +41,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -89,6 +90,19 @@ type http2Server struct {
 	streamSendQuota uint32
 
 	getCodec func() interface{}
+	numActiveUnaryCalls int32
+}
+
+func (t *http2Server) ForceFlush() {
+	select {
+	case <-t.writableChan:
+		t.framer.flushWrite()
+	}
+	t.writableChan <- 0
+}
+
+func (t *http2Server) AdjustNumActiveUnaryCalls(count int32) int32 {
+	return atomic.AddInt32(&t.numActiveUnaryCalls, count)
 }
 
 func (t *http2Server) GetCodec() interface{} {
@@ -511,7 +525,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD, needFlush bool) err
 // There is no further I/O operations being able to perform on this stream.
 // TODO(zhaoq): Now it indicates the end of entire stream. Revisit if early
 // OK is adopted.
-func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error {
+func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string, flushRequired bool) error {
 	var headersSent, hasHeader bool
 	s.mu.Lock()
 	if s.state == streamDone {
@@ -556,7 +570,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 		}
 	}
 	// TODO: apolcyn, revisit flush
-	if err := t.writeHeaders(s, t.hBuf, true, true); err != nil {
+	if err := t.writeHeaders(s, t.hBuf, true, flushRequired); err != nil {
 		t.Close()
 		return err
 	}

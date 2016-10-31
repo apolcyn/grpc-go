@@ -488,6 +488,9 @@ type ServerTransport interface {
 	// WriteHeader may not be called on all streams.
 	WriteHeader(s *Stream, md metadata.MD, needFlush bool) error
 
+	ForceFlush()
+	AdjustNumActiveUnaryCalls(count int32) int32
+
 	// Write sends the data for the given stream.
 	// Write may not be called on all streams.
 	Write(s *Stream, data []byte, opts *Options, needFlush bool) error
@@ -495,7 +498,7 @@ type ServerTransport interface {
 	// WriteStatus sends the status of a stream to the client.
 	// WriteStatus is the final call made on a stream and always
 	// occurs.
-	WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error
+	WriteStatus(s *Stream, statusCode codes.Code, statusDesc string, flushRequired bool) error
 
 	// Close tears down the transport. Once it is called, the transport
 	// should not be accessed any more. All the pending streams and their

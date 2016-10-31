@@ -143,6 +143,15 @@ type serverHandlerTransport struct {
 	getCodec func() interface{}
 }
 
+func (ht *serverHandlerTransport) AdjustNumActiveUnaryCalls(count int32) int32 {
+	panic("unimplemented")
+	return 0 // a no-op
+}
+
+func (ht *serverHandlerTransport) ForceFlush() {
+	panic("unimplemented")
+}
+
 func (ht *serverHandlerTransport) GetCodec() interface{} {
 	return ht.getCodec()
 }
@@ -188,7 +197,7 @@ func (ht *serverHandlerTransport) do(fn func()) error {
 	}
 }
 
-func (ht *serverHandlerTransport) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error {
+func (ht *serverHandlerTransport) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string, delay bool) error {
 	err := ht.do(func() {
 		ht.writeCommonHeaders(s)
 

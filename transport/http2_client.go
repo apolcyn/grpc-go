@@ -484,7 +484,6 @@ func (t *http2Client) CloseStream(s *Stream, err error) {
 	s.mu.Lock()
 	if q := s.fc.resetPendingData(); q > 0 {
 		if n := t.fc.onRead(q); n > 0 {
-			panic("hmm")
 			t.controlBuf.put(&windowUpdate{0, n})
 		}
 	}
