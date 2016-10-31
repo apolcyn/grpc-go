@@ -273,9 +273,9 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 	return s
 }
 
-// NewStream creates a stream and register it into the transport as "active"
+//  && delayNewStream creates a stream and register it into the transport as "active"
 // streams.
-func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (_ *Stream, err error) {
+func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr, delay bool) (_ *Stream, err error) {
 	pr := &peer.Peer{
 		Addr: t.conn.RemoteAddr(),
 	}
@@ -447,7 +447,7 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (_ *Strea
 			first = false
 		} else {
 			// Sends Continuation frames for the leftover headers.
-			err = t.framer.writeContinuation(flush, s.id, endHeaders, t.hBuf.Next(size))
+			err = t.framer.writeContinuation(flush && delay, s.id, endHeaders, t.hBuf.Next(size))
 		}
 		if err != nil {
 			t.notifyError(err)

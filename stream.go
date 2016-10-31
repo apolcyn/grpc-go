@@ -163,7 +163,7 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 			return nil, Errorf(codes.Internal, "%v", err)
 		}
 
-		s, err = t.NewStream(ctx, callHdr)
+		s, err = t.NewStream(ctx, callHdr, false) // send the metadata right away
 		if err != nil {
 			if put != nil {
 				put()

@@ -449,7 +449,7 @@ type ClientTransport interface {
 	Write(s *Stream, data []byte, opts *Options, needFlush bool) error
 
 	// NewStream creates a Stream for an RPC.
-	NewStream(ctx context.Context, callHdr *CallHdr) (*Stream, error)
+	NewStream(ctx context.Context, callHdr *CallHdr, delay bool) (*Stream, error)
 
 	// CloseStream clears the footprint of a stream when the stream is
 	// not needed any more. The err indicates the error incurred when
