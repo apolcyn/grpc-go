@@ -94,14 +94,15 @@ type http2Server struct {
 }
 
 func (t *http2Server) ForceFlush(s *Stream) error {
-	if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-		if _, ok := err.(StreamError); ok {
-			t.controlBuf.put(&flushIO{})
-		}
-		return err
-	}
-	t.framer.flushWrite()
-	t.writableChan <- 0
+	t.controlBuf.put(&flushIO{})
+	//if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
+	//	if _, ok := err.(StreamError); ok {
+	//		t.controlBuf.put(&flushIO{})
+	//	}
+	//	return err
+	//}
+	//t.framer.flushWrite()
+	//t.writableChan <- 0
 	return nil
 }
 
