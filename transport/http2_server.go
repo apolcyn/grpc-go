@@ -89,7 +89,7 @@ type http2Server struct {
 	// the per-stream outbound flow control window size set by the peer.
 	streamSendQuota uint32
 
-	getCodec func() interface{}
+	getCodec            func() interface{}
 	numActiveUnaryCalls int32
 }
 

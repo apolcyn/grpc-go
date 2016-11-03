@@ -645,10 +645,8 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		}
 		reply, appErr := md.Handler(srv.server, stream.Context(), df, s.opts.unaryInt)
 		t.AdjustNumActiveUnaryCalls(1)
+		flushRequired := true
 		defer func() {
-			if t.AdjustNumActiveUnaryCalls(-1) == 0 {
-				t.ForceFlush(stream)
-			}
 		}()
 		if appErr != nil {
 			if err, ok := appErr.(*rpcError); ok {
@@ -662,7 +660,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 				trInfo.tr.LazyLog(stringer(statusDesc), true)
 				trInfo.tr.SetError()
 			}
-			if err := t.WriteStatus(stream, statusCode, statusDesc, false); err != nil {
+			if err := t.WriteStatus(stream, statusCode, statusDesc, true); err != nil {
 				grpclog.Printf("grpc: Server.processUnaryRPC failed to write status: %v", err)
 				return err
 			}
@@ -691,7 +689,10 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		if trInfo != nil {
 			trInfo.tr.LazyLog(&payload{sent: true, msg: reply}, true)
 		}
-		return t.WriteStatus(stream, statusCode, statusDesc, false)
+		if t.AdjustNumActiveUnaryCalls(-1) > 0 {
+			flushRequired = false
+		}
+		return t.WriteStatus(stream, statusCode, statusDesc, flushRequired)
 	}
 }
 
