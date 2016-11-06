@@ -77,9 +77,7 @@ func recvResponse(dopts dialOptions, t transport.ClientTransport, c *callInfo, s
 
 // sendRequest writes out various information of an RPC such as Context and Message.
 func sendRequest(ctx context.Context, compressor Compressor, callHdr *transport.CallHdr, t transport.ClientTransport, args interface{}, opts *transport.Options) (_ *transport.Stream, err error) {
-	// Delay flushing on sending metadata. The metadata 
-	// and message that's about to be sent can be combined to one buffer flush.
-	stream, err := t.NewStream(ctx, callHdr, transport.Options{Delay:true})
+	stream, err := t.NewStream(ctx, callHdr)
 	if err != nil {
 		return nil, err
 	}

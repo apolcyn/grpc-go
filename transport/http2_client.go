@@ -273,9 +273,9 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 	return s
 }
 
-//  && delayNewStream creates a stream and register it into the transport as "active"
+// NewStream creates a stream and register it into the transport as "active"
 // streams.
-func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr, opts Options) (_ *Stream, err error) {
+func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr) (_ *Stream, err error) {
 	pr := &peer.Peer{
 		Addr: t.conn.RemoteAddr(),
 	}
@@ -428,10 +428,9 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr, opts Opti
 		} else {
 			endHeaders = true
 		}
-		var forceFlush bool
-		// Let the Delay flag override aginst flushing if set
-		if !opts.Delay && endHeaders && (hasMD || callHdr.Flush) {
-			forceFlush = true
+		var flush bool
+		if endHeaders && (hasMD || callHdr.Flush) {
+			flush = true
 		}
 		if first {
 			// Sends a HeadersFrame to server to start a new stream.
@@ -442,13 +441,13 @@ func (t *http2Client) NewStream(ctx context.Context, callHdr *CallHdr, opts Opti
 				EndHeaders:    endHeaders,
 			}
 			// Do a force flush for the buffered frames iff it is the last headers frame
-			// and there is header metadata to be sent and the caller allows a "flush".
-			// Otherwise, there is flushing until the corresponding data frame is written.
-			err = t.framer.writeHeaders(forceFlush, p)
+			// and there is header metadata to be sent. Otherwise, there is flushing until
+			// the corresponding data frame is written.
+			err = t.framer.writeHeaders(flush, p)
 			first = false
 		} else {
 			// Sends Continuation frames for the leftover headers.
-			err = t.framer.writeContinuation(forceFlush, s.id, endHeaders, t.hBuf.Next(size))
+			err = t.framer.writeContinuation(flush, s.id, endHeaders, t.hBuf.Next(size))
 		}
 		if err != nil {
 			t.notifyError(err)
@@ -584,8 +583,6 @@ func (t *http2Client) GracefulClose() error {
 // should proceed only if Write returns nil.
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
 // if it improves the performance.
-// Note that the potential use for opts.Delay on the client side should only
-// be on streaming calls.
 func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 	r := bytes.NewBuffer(data)
 	for {

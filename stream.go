@@ -164,7 +164,7 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 		}
 
 		// need to send metadata right away
-		s, err = t.NewStream(ctx, callHdr, transport.Options{}) 
+		s, err = t.NewStream(ctx, callHdr) 
 		if err != nil {
 			if put != nil {
 				put()
