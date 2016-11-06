@@ -645,10 +645,10 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		}
 		reply, appErr := md.Handler(srv.server, stream.Context(), df, s.opts.unaryInt)
 
-		t.AdjustNumCompletingUnaryCalls(1)
+		//t.AdjustNumCompletingUnaryCalls(1)
 
 		if appErr != nil {
-			t.AdjustNumCompletingUnaryCalls(-1)
+			//NumCompletingUnaryCalls(-1)
 			if err, ok := appErr.(*rpcError); ok {
 				statusCode = err.code
 				statusDesc = err.desc
@@ -676,7 +676,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 			Delay: true,
 		}
 		if err := s.sendResponse(t, stream, reply, s.opts.cp, opts); err != nil {
-			t.AdjustNumCompletingUnaryCalls(-1) 
+			//NumCompletingUnaryCalls(-1) 
 			switch err := err.(type) {
 			case transport.ConnectionError:
 				// Nothing to do here.
@@ -692,9 +692,9 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		if trInfo != nil {
 			trInfo.tr.LazyLog(&payload{sent: true, msg: reply}, true)
 		}
-		if t.AdjustNumCompletingUnaryCalls(-1) == 0 {
-			opts.Delay = false
-		}
+		//if //NumCompletingUnaryCalls(-1) == 0 {
+		opts.Delay = false
+		//}
 		// Pass false for the "flush" parameter of WriteStatus. The last concurrently
 		// finishing unary call on the connection will flush.
 		return t.WriteStatus(stream, statusCode, statusDesc, *opts)
