@@ -78,18 +78,18 @@ type circBuf struct {
 func newCircBuf() *circBuf {
 	return &circBuf{
 		items: make([]item, 2),
-		size: 0,
-		w: 0,
-		r: 0,
+		size:  0,
+		w:     0,
+		r:     0,
 	}
 }
 
 func (c *circBuf) addItem(t item) {
 	if c.size == cap(c.items) {
 		//grpclog.Println("growing circular buffer")
-		newList := make([]item, cap(c.items) * 2)
+		newList := make([]item, cap(c.items)*2)
 		for i := 0; i < c.size; i++ {
-			newList[i] = c.items[(i + c.r) % cap(c.items)]
+			newList[i] = c.items[(i+c.r)%cap(c.items)]
 		}
 		c.items = newList
 		c.r = 0
@@ -101,15 +101,15 @@ func (c *circBuf) addItem(t item) {
 }
 
 func (c *circBuf) peek() item {
-	if c.r == c.w {
-		panic("peeking past the end")
+	if c.size == 0 {
+		panic("peeking at a non-zero size")
 	}
 	return c.items[c.r]
 }
 
 func (c *circBuf) next() item {
-	if c.r == c.w {
-		panic("reading past the end")
+	if c.size == 0 {
+		panic("reading next past a non-zero size")
 	}
 	out := c.items[c.r]
 	c.items[c.r] = nil
@@ -127,7 +127,7 @@ type recvBuffer struct {
 
 func newRecvBuffer() *recvBuffer {
 	b := &recvBuffer{
-		c: make(chan item, 1),
+		c:       make(chan item, 1),
 		backlog: newCircBuf(),
 	}
 	return b
