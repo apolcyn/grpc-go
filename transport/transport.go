@@ -100,6 +100,13 @@ func (c *circBuf) addItem(t item) {
 	c.size += 1
 }
 
+func (c *circBuf) peek() item {
+	if c.r == c.w {
+		panic("peeking past the end")
+	}
+	return c.items[c.r]
+}
+
 func (c *circBuf) next() item {
 	if c.r == c.w {
 		panic("reading past the end")
@@ -144,7 +151,8 @@ func (b *recvBuffer) load() {
 	defer b.mu.Unlock()
 	if b.backlog.size > 0 {
 		select {
-		case b.c <- b.backlog.next():
+		case b.c <- b.backlog.peek():
+			b.backlog.next()
 		default:
 		}
 	}
