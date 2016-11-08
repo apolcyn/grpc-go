@@ -42,6 +42,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"container/ring"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
@@ -71,12 +72,13 @@ type item interface {
 type recvBuffer struct {
 	c       chan item
 	mu      sync.Mutex
-	backlog []item
+	backlog *ring.Ring
 }
 
 func newRecvBuffer() *recvBuffer {
 	b := &recvBuffer{
 		c: make(chan item, 1),
+		backlog: ring.New(0),
 	}
 	return b
 }
@@ -84,23 +86,24 @@ func newRecvBuffer() *recvBuffer {
 func (b *recvBuffer) put(r item) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(b.backlog) == 0 {
+	if b.backlog.Len() == 0 {
 		select {
 		case b.c <- r:
 			return
 		default:
 		}
 	}
-	b.backlog = append(b.backlog, r)
+	ring := &ring.Ring{Value: r}
+	b.backlog.Link(ring)
 }
 
 func (b *recvBuffer) load() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if len(b.backlog) > 0 {
+	if b.backlog.Len() > 0 {
 		select {
-		case b.c <- b.backlog[0]:
-			b.backlog = b.backlog[1:]
+		case b.c <- b.backlog.Move(0).Value.(item):
+			b.backlog.Unlink(1)
 		default:
 		}
 	}
