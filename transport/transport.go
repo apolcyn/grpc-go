@@ -86,7 +86,7 @@ func newCircBuf() *circBuf {
 
 func (c *circBuf) addItem(t item) {
 	if c.size == cap(c.items) {
-		grpclog.Println("growing circular buffer")
+		//grpclog.Println("growing circular buffer")
 		newList := make([]item, cap(c.items) * 2)
 		for i := 0; i < c.size; i++ {
 			newList[i] = c.items[(i + c.r) % cap(c.items)]
