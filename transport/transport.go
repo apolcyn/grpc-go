@@ -42,13 +42,13 @@ import (
 	"io"
 	"net"
 	"sync"
-	"container/ring"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/trace"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/grpclog"
 )
 
 // recvMsg represents the received msg from the transport. All transport
@@ -75,37 +75,53 @@ type circBuf struct {
 	w     int
 }
 
-func (c *circBuf) size() int {
-	return c.size
+func newCircBuf() *circBuf {
+	return &circBuf{
+		items: make([]item, 2),
+		size: 0,
+		w: 0,
+		r: 0,
+	}
 }
 
 func (c *circBuf) addItem(t item) {
-	c.w = t
-	c.w += 1
-	c.w %= cap(c.items)
-	if c.w == c.r {
-		k := 0
+	if c.size == cap(c.items) {
+		grpclog.Println("growing circular buffer")
 		newList := make([]item, cap(c.items) * 2)
-		for i := c.r; i != c.w; i = (i + 1) % cap(c.items) {
-			newList[k] = c.items[i]
-			k += 1
+		for i := 0; i < c.size; i++ {
+			newList[i] = c.items[(i + c.r) % cap(c.items)]
 		}
-		circBuf.items = newList
-		circBuf.r = 0
-		circBuf.w = k
+		c.items = newList
+		c.r = 0
+		c.w = c.size
 	}
+	c.items[c.w] = t
+	c.w = (c.w + 1) % cap(c.items)
+	c.size += 1
+}
+
+func (c *circBuf) next() item {
+	if c.r == c.w {
+		panic("reading past the end")
+	}
+	out := c.items[c.r]
+	c.items[c.r] = nil
+	c.r = (c.r + 1) % cap(c.items)
+	c.size -= 1
+	return out
 }
 
 // recvBuffer is an unbounded channel of item.
 type recvBuffer struct {
 	c       chan item
 	mu      sync.Mutex
-	backlog *ring.Ring
+	backlog *circBuf
 }
 
 func newRecvBuffer() *recvBuffer {
 	b := &recvBuffer{
 		c: make(chan item, 1),
+		backlog: newCircBuf(),
 	}
 	return b
 }
@@ -113,29 +129,22 @@ func newRecvBuffer() *recvBuffer {
 func (b *recvBuffer) put(r item) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.backlog.Len() == 0 {
+	if b.backlog.size == 0 {
 		select {
 		case b.c <- r:
 			return
 		default:
 		}
 	}
-	ring := ring.New(1)
-	ring.Value = r
-	if b.backlog == nil {
-		b.backlog = ring
-	} else {
-		b.backlog.Link(ring)
-	}
+	b.backlog.addItem(r)
 }
 
 func (b *recvBuffer) load() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.backlog.Len() > 0 {
+	if b.backlog.size > 0 {
 		select {
-		case b.c <- b.backlog.Move(0).Value.(item):
-			b.backlog.Unlink(1)
+		case b.c <- b.backlog.next():
 		default:
 		}
 	}
