@@ -48,7 +48,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/grpclog"
+	//"google.golang.org/grpc/grpclog"
 )
 
 // recvMsg represents the received msg from the transport. All transport
