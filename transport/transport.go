@@ -68,6 +68,34 @@ type item interface {
 	item()
 }
 
+type circBuf struct {
+	items []item
+	size  int
+	r     int
+	w     int
+}
+
+func (c *circBuf) size() int {
+	return c.size
+}
+
+func (c *circBuf) addItem(t item) {
+	c.w = t
+	c.w += 1
+	c.w %= cap(c.items)
+	if c.w == c.r {
+		k := 0
+		newList := make([]item, cap(c.items) * 2)
+		for i := c.r; i != c.w; i = (i + 1) % cap(c.items) {
+			newList[k] = c.items[i]
+			k += 1
+		}
+		circBuf.items = newList
+		circBuf.r = 0
+		circBuf.w = k
+	}
+}
+
 // recvBuffer is an unbounded channel of item.
 type recvBuffer struct {
 	c       chan item
