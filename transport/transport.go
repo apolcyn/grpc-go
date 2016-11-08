@@ -78,7 +78,6 @@ type recvBuffer struct {
 func newRecvBuffer() *recvBuffer {
 	b := &recvBuffer{
 		c: make(chan item, 1),
-		backlog: ring.New(0),
 	}
 	return b
 }
@@ -93,8 +92,13 @@ func (b *recvBuffer) put(r item) {
 		default:
 		}
 	}
-	ring := &ring.Ring{Value: r}
-	b.backlog.Link(ring)
+	ring := ring.New(1)
+	ring.Value = r
+	if b.backlog == nil {
+		b.backlog = ring
+	} else {
+		b.backlog.Link(ring)
+	}
 }
 
 func (b *recvBuffer) load() {
