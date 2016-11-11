@@ -91,6 +91,8 @@ func TestBasicProtoCodecMarshalAndUnmarshal(t *testing.T) {
 	marshalAndUnmarshal(newProtoCodec(), []byte{1, 2, 3}, t)
 }
 
+// This tries to make sure that buffers weren't stomped on
+// between marshals on codecs taking from the same pool.
 func TestStaggeredMarshalAndUnmarshalUsingSamePool(t *testing.T) {
 	providerCreator := newProtoCodecProviderCreator()
 	getCodec := providerCreator.onNewTransport()
