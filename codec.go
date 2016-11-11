@@ -90,7 +90,8 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := buffer.Bytes()
+	out := make([]byte, len(buffer.Bytes()))
+	copy(out, buffer.Bytes())
 	buffer.SetBuf(nil)
 	mb.lastSlice = currentSlice
 	p.marshalPool.marshalBufFree(mb)
