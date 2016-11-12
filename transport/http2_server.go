@@ -607,6 +607,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			}
 			return err
 		}
+		ignoreDelayFlag := false
 		if sq < size {
 			size = sq
 		}
@@ -615,6 +616,15 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		p := r.Next(size)
 		ps := len(p)
+		if sq-ps <= int(t.streamSendQuota/2) || tq-ps <= int(t.streamSendQuota/2)*int(len(t.activeStreams)) {
+			// The Delay flag can help to do larger batches of
+			// write flushes, but it could cause deadlock
+			// if quota gets used up without a flush.
+			// Any threshold >= 0 avoids deadlock, but the
+			// t.streamSendQuota/2 threshold can keep window
+			// updates and data frames async.
+			ignoreDelayFlag = true
+		}
 		if ps < sq {
 			// Overbooked stream quota. Return it back.
 			s.sendQuotaPool.add(sq - ps)
@@ -652,15 +662,17 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		var forceFlush bool
 		// Don't flush at all if the delay flag was set
-		if !opts.Delay && r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
-			forceFlush = true
+		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
+			if ignoreDelayFlag || !opts.Delay {
+				forceFlush = true
+			}
 		}
 		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
 		if t.framer.adjustNumWriters(-1) == 0 {
-			if !opts.Delay {
+			if ignoreDelayFlag || !opts.Delay {
 				t.framer.flushWrite()
 			}
 		}
