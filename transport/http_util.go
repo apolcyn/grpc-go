@@ -472,10 +472,15 @@ func (f *framer) writeRSTStream(forceFlush bool, streamID uint32, code http2.Err
 
 func (f *framer) writeSettings(forceFlush bool, settings ...http2.Setting) error {
 	if err := f.fr.WriteSettings(settings...); err != nil {
+		grpclog.Println("475 in http_util %v", err)
 		return err
 	}
 	if forceFlush {
-		return f.writer.Flush()
+		if err := f.writer.Flush(); err != nil {
+			grpclog.Println("479 in http_util %v", err)
+			return err
+		}
+		return nil
 	}
 	return nil
 }

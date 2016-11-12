@@ -29,7 +29,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- */
+*/
 
 package transport
 
@@ -79,6 +79,11 @@ const (
 	misbehaved
 	encodingRequiredStatus
 	invalidHeaderField
+	smallWindowTest
+
+	// arbitrary, message length only needs to be larger than the window size
+	smallWindowTestWindowSize = 2 << 5
+	smallWindowTestMessageSize = 2 << 10
 )
 
 func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
@@ -98,6 +103,40 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
 	}
 	// send a response back to the client.
 	h.t.Write(s, resp, &Options{})
+	// send the trailer to end the stream.
+	h.t.WriteStatus(s, codes.OK, "")
+}
+
+func (h *testStreamHandler) handleStreamsDelayFlag(t *testing.T, s *Stream) {
+	var req, resp []byte
+	if s.Method() == "foo.SmallWindowTest" {
+		req = expectedRequestLarge
+		resp = expectedResponseLarge
+		// check to make sure that the quota has been lowered to
+		// expected amount
+		s.sendQuotaPool.add(0)
+		select {
+		case streamQuota := <-s.sendQuotaPool.acquire():
+			if streamQuota != smallWindowTestWindowSize {
+				t.Fatal("Server stream quota not set")
+			}
+			s.sendQuotaPool.add(streamQuota)
+		default:
+			t.Fatal("no stream quota")
+		}
+	} else {
+		t.Fatal("incorrect method for handler")
+	}
+	p := make([]byte, len(req))
+	_, err := io.ReadFull(s, p)
+	if err != nil {
+		return
+	}
+	if !bytes.Equal(p, req) {
+		t.Fatalf("handleStream got %v, want %v", p, req)
+	}
+	// send a response back to the client. Delay the write
+	h.t.Write(s, resp, &Options{Delay:true})
 	// send the trailer to end the stream.
 	h.t.WriteStatus(s, codes.OK, "")
 }
@@ -219,6 +258,13 @@ func (s *server) start(t *testing.T, port int, maxStreams uint32, ht hType) {
 			}, func(ctx context.Context, method string) context.Context {
 				return ctx
 			})
+		case smallWindowTest:
+			go transport.HandleStreams(func(s *Stream) {
+				go h.handleStreamsDelayFlag(t, s)
+			}, func(ctx context.Context, method string) context.Context {
+				return ctx
+			})
+
 		default:
 			go transport.HandleStreams(func(s *Stream) {
 				go h.handleStream(t, s)
@@ -305,6 +351,85 @@ func TestClientSendAndReceive(t *testing.T) {
 	if recvErr != io.EOF {
 		t.Fatalf("Error: %v; want <EOF>", recvErr)
 	}
+	ct.Close()
+	server.stop()
+}
+
+// Tests flow control in the case the the flow control window is smaller than
+func TestLargeMessageWithSmallClientReceiveWindow(t *testing.T) {
+	var err error
+	var s *Stream
+	server, client := setUp(t, 0, math.MaxUint32, smallWindowTest)
+	ct := client.(*http2Client)
+	callHdr := &CallHdr{
+		Host:   "localhost",
+		Method: "foo.SmallWindowTest",
+	}
+
+	// Shrink the per-stream window (transport window stays the same) and sanity check the
+	// internal state of the client to be sure the window is small
+
+	ct.streamsInboundWindowSize = smallWindowTestWindowSize
+
+	// Wait for the first settings ack
+	select {
+	case <- ct.settingsAckRecvd:
+	case <-time.After(time.Second * 10):
+		t.Fatal("wait for first settings ack timed out")
+	}
+
+	select {
+	case <-ct.writableChan:
+		err = ct.framer.writeSettings(true, http2.Setting{
+			ID:  http2.SettingInitialWindowSize,
+			Val: uint32(smallWindowTestWindowSize),
+		})
+		ct.writableChan <- 0
+	}
+	if err != nil {
+		t.Fatalf("Failed to write settings frame to shrink client side inbound window size. Error %v. Backtrace %v", err)
+	}
+
+	// Wait for the second settings ack
+	select {
+	case <-ct.settingsAckRecvd:
+	case <-time.After(time.Second * 10):
+		t.Fatal("wait for second settings ack timed out")
+	}
+
+	if http2IOBufSize >= len(expectedRequestLarge) {
+		t.Fatal("Sanity check of io buffer length failed. Test message larger than io buffer")
+	}
+
+
+	s, err = ct.NewStream(context.Background(), callHdr)
+	if err != nil {
+		t.Fatal("%v.NewStream(_, _) = _, %v, want _, <nil>", ct, err)
+	}
+	if err = ct.Write(s, expectedRequestLarge, &Options{Last: true, Delay: false}); err != nil && err != io.EOF {
+		t.Fatal("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
+	}
+	p := make([]byte, len(expectedResponseLarge))
+
+	clientReadComplete := make(chan int, 1)
+
+	go func() {
+		if _, err = io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+			t.Fatal("io.ReadFull(_, %v) = _, %v, want %v, <nil>", err, p, expectedResponse)
+		}
+		if _, err = io.ReadFull(s, p); err != io.EOF {
+			t.Fatal("Failed to complete the stream %v; want <EOF>", err)
+		}
+		clientReadComplete<- 0
+	}()
+
+
+	select {
+	case <- clientReadComplete:
+	case <-time.After(time.Second * 10):
+		t.Fatal("Call timed out. Flow control probably deadlocked")
+	}
+
 	ct.Close()
 	server.stop()
 }
