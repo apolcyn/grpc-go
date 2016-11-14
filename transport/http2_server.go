@@ -165,7 +165,10 @@ func (t *http2Server) onStart() {
 }
 
 func (t *http2Server) onClose() {
+	t.latenciesMu.Lock()
+	t.latencies[0] = []int64{t.nextLatencyID, t.nextLatencyID}
 	raw, err := json.Marshal(t.latencies)
+	t.latenciesMu.Unlock()
 	if err != nil {
 		panic("error creating json file")
 	}
@@ -184,16 +187,23 @@ func (t *http2Server) onClose() {
 
 func (t *http2Server) onHandleDataFrame(streamID uint32) {
 	t.latenciesMu.Lock()
+	grpclog.Println("on handle data called again")
+	grpclog.Println("next latency id is " + strconv.FormatInt(t.nextLatencyID, 10))
 	defer t.latenciesMu.Unlock()
 
 	latencyId := t.nextLatencyID
 	t.nextLatencyID += 1
+	_, ok := t.streamToLatencyID[streamID]
+	if ok {
+		grpclog.Println("WARNING --- streamID already has latencyID attached")
+	}
 	t.streamToLatencyID[streamID] = latencyId
 
 	vals, ok := t.latencies[int64(latencyId)]
 	if ok {
-		panic("something wrong here")
+		grpclog.Println("WARNING --- latencies already has entry for latencyID")
 	}
+	vals = make([]int64, 0)
 	newTime := time.Now()
 	vals = append(vals, int64(newTime.Second()*1e9)+int64(newTime.Nanosecond()))
 	t.latencies[int64(latencyId)] = vals
@@ -207,10 +217,11 @@ func (t *http2Server) onWriteDataFrame(streamID uint32) {
 	if !ok {
 		panic("something wrong here")
 	}
+	delete(t.streamToLatencyID, streamID)
 
 	vals, ok := t.latencies[int64(latencyID)]
 	if !ok {
-		vals = make([]int64, 0)
+		panic("something wrong here")
 	}
 	newTime := time.Now()
 	vals = append(vals, int64(newTime.Second()*1e9)+int64(newTime.Nanosecond()))
