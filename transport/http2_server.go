@@ -657,6 +657,18 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		p := r.Next(size)
 		ps := len(p)
+		if tq < 100000 {
+			grpclog.Println("WARNING: TRANSPORT QUOTA BELOE 100000")
+		}
+		if tq < 10000 {
+			grpclog.Println("WARNING: TRANSPORT QUOTA BELOE 10000")
+		}
+		if tq < 1000 {
+			grpclog.Println("WARNING: TRANSPORT QUOTA BELOE 1000")
+		}
+		if tq < 100 {
+			grpclog.Println("WARNING: TRANSPORT QUOTA BELOE 100")
+		}
 		if ps < sq {
 			// Overbooked stream quota. Return it back.
 			s.sendQuotaPool.add(sq - ps)
