@@ -616,7 +616,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		p := r.Next(size)
 		ps := len(p)
-		if sq-ps <= int(t.streamSendQuota/2) || tq-ps <= int(t.streamSendQuota/2)*int(len(t.activeStreams)) {
+		if sq-ps <= int(t.streamSendQuota/2) || tq-ps <= int(t.streamSendQuota/2) {
 			// The Delay flag can help to do larger batches of
 			// write flushes, but it could cause deadlock
 			// if quota gets used up without a flush.
