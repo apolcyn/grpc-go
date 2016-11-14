@@ -160,8 +160,6 @@ func (t *http2Server) onStart() {
 }
 
 func (t *http2Server) onClose() {
-	t.latencies[0] = []int64{1, 2, 3}
-	t.latencies[1] = []int64{4, 5, 6}
 	raw, err := json.Marshal(t.latencies)
 	if err != nil {
 		panic("error creating json file")
@@ -178,11 +176,11 @@ func (t *http2Server) onClose() {
 }
 
 func (t *http2Server) onHandleDataFrame(streamID uint32) {
-	grpclog.Println("handling another data frame")
+	t.latencies[int64(streamID)] = []int64{1, 2, 3}
 }
 
 func (t *http2Server) onWriteDataFrame(streamID uint32) {
-	grpclog.Println("writing another data frame")
+	t.latencies[int64(streamID)] = []int64{1, 2, 3}
 }
 
 // operateHeader takes action on the decoded headers.
