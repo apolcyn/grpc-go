@@ -44,6 +44,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -94,8 +95,11 @@ type http2Server struct {
 	state         transportState
 	activeStreams map[uint32]*Stream
 	// the per-stream outbound flow control window size set by the peer.
-	streamSendQuota uint32
-	latencies       map[int64][]int64
+	streamSendQuota   uint32
+	latencies         map[int64][]int64
+	latenciesMu       sync.Mutex
+	nextLatencyID     int64
+	streamToLatencyID map[uint32]int64
 }
 
 // newHTTP2Server constructs a ServerTransport based on HTTP2. ConnectionError is
@@ -157,6 +161,7 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 
 func (t *http2Server) onStart() {
 	t.latencies = make(map[int64][]int64)
+	t.streamToLatencyID = make(map[uint32]int64)
 }
 
 func (t *http2Server) onClose() {
@@ -166,21 +171,50 @@ func (t *http2Server) onClose() {
 	}
 	uniq := strconv.FormatInt(rand.Int63(), 10)
 	filename := "latencies_" + uniq + ".json"
-	f, err := os.Create("/tmp/dat2")
+	f, err := os.Create(filename)
 	if err != nil {
 		panic("error creating json out")
 	}
-	defer f.Close()
+	defer func() {
+		f.Close()
+		grpclog.Println("just wrote json to: " + filename)
+	}()
 	f.Write(raw)
-	grpclog.Println("just wrote json to: " + filename)
 }
 
 func (t *http2Server) onHandleDataFrame(streamID uint32) {
-	t.latencies[int64(streamID)] = []int64{1, 2, 3}
+	t.latenciesMu.Lock()
+	defer t.latenciesMu.Unlock()
+
+	latencyId := t.nextLatencyID
+	t.nextLatencyID += 1
+	t.streamToLatencyID[streamID] = latencyId
+
+	vals, ok := t.latencies[int64(latencyId)]
+	if ok {
+		panic("something wrong here")
+	}
+	newTime := time.Now()
+	vals = append(vals, int64(newTime.Second()*1e9)+int64(newTime.Nanosecond()))
+	t.latencies[int64(latencyId)] = vals
 }
 
 func (t *http2Server) onWriteDataFrame(streamID uint32) {
-	t.latencies[int64(streamID)] = []int64{1, 2, 3}
+	t.latenciesMu.Lock()
+	defer t.latenciesMu.Unlock()
+
+	latencyID, ok := t.streamToLatencyID[streamID]
+	if !ok {
+		panic("something wrong here")
+	}
+
+	vals, ok := t.latencies[int64(latencyID)]
+	if !ok {
+		vals = make([]int64, 0)
+	}
+	newTime := time.Now()
+	vals = append(vals, int64(newTime.Second()*1e9)+int64(newTime.Nanosecond()))
+	t.latencies[int64(latencyID)] = vals
 }
 
 // operateHeader takes action on the decoded headers.
@@ -408,13 +442,13 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 	}
 	// Select the right stream to dispatch.
 	s, ok := t.getStream(f)
-	t.onHandleDataFrame(s.id)
 	if !ok {
 		if w := t.fc.onRead(uint32(size)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 		}
 		return
 	}
+	t.onHandleDataFrame(s.id)
 	if size > 0 {
 		s.mu.Lock()
 		if s.state == streamDone {
