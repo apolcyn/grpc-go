@@ -35,10 +35,13 @@ package transport
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"math"
+	"math/rand"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 
@@ -92,6 +95,7 @@ type http2Server struct {
 	activeStreams map[uint32]*Stream
 	// the per-stream outbound flow control window size set by the peer.
 	streamSendQuota uint32
+	latencies       map[int64][]int64
 }
 
 // newHTTP2Server constructs a ServerTransport based on HTTP2. ConnectionError is
@@ -147,7 +151,38 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 	}
 	go t.controller()
 	t.writableChan <- 0
+	t.onStart()
 	return t, nil
+}
+
+func (t *http2Server) onStart() {
+	t.latencies = make(map[int64][]int64)
+}
+
+func (t *http2Server) onClose() {
+	t.latencies[0] = []int64{1, 2, 3}
+	t.latencies[1] = []int64{4, 5, 6}
+	raw, err := json.Marshal(t.latencies)
+	if err != nil {
+		panic("error creating json file")
+	}
+	uniq := strconv.FormatInt(rand.Int63(), 10)
+	filename := "latencies_" + uniq + ".json"
+	f, err := os.Create("/tmp/dat2")
+	if err != nil {
+		panic("error creating json out")
+	}
+	defer f.Close()
+	f.Write(raw)
+	grpclog.Println("just wrote json to: " + filename)
+}
+
+func (t *http2Server) onHandleDataFrame(streamID uint32) {
+	grpclog.Println("handling another data frame")
+}
+
+func (t *http2Server) onWriteDataFrame(streamID uint32) {
+	grpclog.Println("writing another data frame")
 }
 
 // operateHeader takes action on the decoded headers.
@@ -375,6 +410,7 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 	}
 	// Select the right stream to dispatch.
 	s, ok := t.getStream(f)
+	t.onHandleDataFrame(s.id)
 	if !ok {
 		if w := t.fc.onRead(uint32(size)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
@@ -688,6 +724,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
 			forceFlush = true
 		}
+		t.onWriteDataFrame(s.id)
 		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
@@ -773,6 +810,7 @@ func (t *http2Server) Close() (err error) {
 		t.mu.Unlock()
 		return errors.New("transport: Close() was already called")
 	}
+	t.onClose()
 	t.state = closing
 	streams := t.activeStreams
 	t.activeStreams = nil
