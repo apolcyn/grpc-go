@@ -466,7 +466,6 @@ func (s *Server) serverRawTcp(c net.Conn) {
 		if num != 2 {
 			panic("bad read num")
 		}
-	        grpclog.Println("server read-write complete for raw server")
 	}
 }
 
