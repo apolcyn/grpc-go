@@ -442,11 +442,11 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 func writeRawTcp(c net.Conn, writeSig chan bool) {
 	for {
 		<-writeSig
-		num, err := c.Write([]byte{5, 6})
+		num, err := c.Write([]byte{8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9})
 		if err != nil {
 			panic("write error on server")
 		}
-		if num != 2 {
+		if num != 16 {
 			panic("bad write num")
 		}
 	}
@@ -457,14 +457,14 @@ func (s *Server) serverRawTcp(c net.Conn) {
 	writeSig := make(chan bool, 1)
 	go func(c net.Conn, w chan bool) { writeRawTcp(c, w) }(c, writeSig)
 	for {
-		recvd := make([]byte, 2)
-		expected := []byte{3, 4}
+		recvd := make([]byte, 16)
+		expected := []byte{1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 		num, err := c.Read(recvd)
 		if err != nil {
 			grpclog.Println("read error, exiting handle raw conn")
 			return
 		}
-		if num != 2 {
+		if num != 16 {
 			panic("bad read num")
 		}
 

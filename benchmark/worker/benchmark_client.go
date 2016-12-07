@@ -34,6 +34,7 @@
 package main
 
 import (
+	"io"
 	"math"
 	"net"
 	"runtime"
@@ -186,15 +187,15 @@ func createRawConns(config *testpb.ClientConfig) ([]net.Conn, func(), error) {
 }
 
 func doRawUnaryCall(conn net.Conn) error {
-	recvd := make([]byte, 2)
-	expected := []byte{5, 6}
+	recvd := make([]byte, 16)
+	expected := []byte{8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 
-	num, err := conn.Write([]byte{3, 4})
+	num, err := conn.Write([]byte{1, 2, 3, 4, 5, 6, 7, 1, 2, 3, 4, 5, 6, 7, 8, 9})
 	if err != nil {
-		grpclog.Println("write error, exiting handle raw conn")
+		grpclog.Println("write error, exiting do unary call: " + err.Error())
 		return err
 	}
-	if num != 2 {
+	if num != 16 {
 		panic("bad write num")
 	}
 
@@ -203,8 +204,9 @@ func doRawUnaryCall(conn net.Conn) error {
 		grpclog.Println("read error, exiting handle raw conn")
 		return err
 	}
-	if num != 2 {
-		panic("bad read num")
+	if num != 16 {
+		grpclog.Println("bad read num %d", byte(num))
+		return io.ErrUnexpectedEOF //panic("bad read num")
 	}
 
 	for i := 0; i < len(recvd); i++ {
@@ -231,33 +233,16 @@ func performRawRPCs(config *testpb.ClientConfig, conns []net.Conn, bc *benchmark
 				// before starting benchmark.
 				done := make(chan bool)
 				for {
-					go func() {
-						start := time.Now()
-						if err := doRawUnaryCall(conn); err != nil {
-							select {
-							case <-bc.stop:
-							case done <- false:
-							}
-							return
-						}
-						//if err := benchmark.DoUnaryCall(client, reqSize, respSize); err != nil {
-						//	select {
-						//	case <-bc.stop:
-						//	case done <- false:
-						//	}
-						//	return
-						//}
-						elapse := time.Since(start)
-						bc.lockingHistograms[idx].add(int64(elapse))
-						select {
-						case <-bc.stop:
-						case done <- true:
-						}
-					}()
+					start := time.Now()
+					if err := doRawUnaryCall(stream, reqSize, respSize); err != nil {
+						return
+					}
+					elapse := time.Since(start)
+					bc.lockingHistograms[idx].add(int64(elapse))
 					select {
 					case <-bc.stop:
 						return
-					case <-done:
+					default:
 					}
 				}
 			}(idx)
