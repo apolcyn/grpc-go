@@ -201,6 +201,7 @@ func doRawUnaryCall(conn net.Conn) error {
 
 	for i := 0; i < len(recvd); i++ {
 		if recvd[i] != expected[i] {
+			grpclog.Println("received bad data. received %d but expected %d", recvd[i], expected[i])
 			panic("received bad data")
 		}
 	}
