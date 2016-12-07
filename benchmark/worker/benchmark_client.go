@@ -35,7 +35,6 @@ package main
 
 import (
 	"math"
-	"runtime"
 	"sync"
 	"time"
 
@@ -107,16 +106,6 @@ func printClientConfig(config *testpb.ClientConfig) {
 	grpclog.Printf(" - rpc type: %v", config.RpcType)
 	grpclog.Printf(" - histogram params: %v", config.HistogramParams)
 	grpclog.Printf(" - server targets: %v", config.ServerTargets)
-}
-
-func setupClientEnv(config *testpb.ClientConfig) {
-	// Use all cpu cores available on machine by default.
-	// TODO: Revisit this for the optimal default setup.
-	if config.CoreLimit > 0 {
-		runtime.GOMAXPROCS(int(config.CoreLimit))
-	} else {
-		runtime.GOMAXPROCS(runtime.NumCPU())
-	}
 }
 
 // createConns creates connections according to given config.
@@ -217,9 +206,6 @@ func performRPCs(config *testpb.ClientConfig, conns []*grpc.ClientConn, bc *benc
 
 func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error) {
 	printClientConfig(config)
-
-	// Set running environment like how many cores to use.
-	setupClientEnv(config)
 
 	conns, closeConns, err := createConns(config)
 	if err != nil {

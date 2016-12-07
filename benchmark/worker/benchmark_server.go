@@ -34,7 +34,6 @@
 package main
 
 import (
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,14 +80,6 @@ func printServerConfig(config *testpb.ServerConfig) {
 
 func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchmarkServer, error) {
 	printServerConfig(config)
-
-	// Use all cpu cores available on machine by default.
-	// TODO: Revisit this for the optimal default setup.
-	numOfCores := runtime.NumCPU()
-	if config.CoreLimit > 0 {
-		numOfCores = int(config.CoreLimit)
-	}
-	runtime.GOMAXPROCS(numOfCores)
 
 	var opts []grpc.ServerOption
 
@@ -156,7 +147,7 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		grpclog.Fatalf("failed to get port number from server address: %v", err)
 	}
 
-	return &benchmarkServer{port: p, cores: numOfCores, closeFunc: closeFunc, lastResetTime: time.Now()}, nil
+	return &benchmarkServer{port: p, cores: 0, closeFunc: closeFunc, lastResetTime: time.Now()}, nil
 }
 
 // getStats returns the stats for benchmark server.
