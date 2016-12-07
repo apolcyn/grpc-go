@@ -444,9 +444,13 @@ func (s *Server) serverRawTcp(c net.Conn) {
 	for {
 		recvd := make([]byte, 2)
 		expected := []byte{3, 4}
-		if _, err := c.Read(recvd); err != nil {
+		num, err := c.Read(recvd)
+		if err != nil {
 			grpclog.Println("read error, exiting handle raw conn")
 			return
+		}
+		if num != 2 {
+			panic("bad read num")
 		}
 
 		for i := 0; i < len(recvd); i++ {
@@ -455,10 +459,14 @@ func (s *Server) serverRawTcp(c net.Conn) {
 			}
 		}
 
-		if _, err := c.Write([]byte{5, 6}); err != nil {
-			grpclog.Println("write error, exiting handle raw conn")
-			return
+		num, err = c.Write([]byte{5, 6})
+		if err != nil {
+			panic("write error on server")
 		}
+		if num != 2 {
+			panic("bad read num")
+		}
+	        grpclog.Println("server read-write complete for raw server")
 	}
 }
 

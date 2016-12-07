@@ -189,14 +189,22 @@ func doRawUnaryCall(conn net.Conn) error {
 	recvd := make([]byte, 2)
 	expected := []byte{5, 6}
 
-	if _, err := conn.Write([]byte{3, 4}); err != nil {
+	num, err := conn.Write([]byte{3, 4})
+	if err != nil {
 		grpclog.Println("write error, exiting handle raw conn")
 		panic("error")
 	}
+	if num != 2 {
+		panic("bad write num")
+	}
 
-	if _, err := conn.Read(recvd); err != nil {
+	num, err = conn.Read(recvd)
+	if err != nil {
 		grpclog.Println("read error, exiting handle raw conn")
 		panic("error")
+	}
+	if num != 2 {
+		panic("bad read num")
 	}
 
 	for i := 0; i < len(recvd); i++ {
@@ -205,6 +213,7 @@ func doRawUnaryCall(conn net.Conn) error {
 			panic("received bad data")
 		}
 	}
+	grpclog.Println("client read-write complete for raw read-write")
 	return nil
 }
 
