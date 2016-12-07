@@ -110,6 +110,8 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		opts = append(opts, grpc.Creds(creds))
 	}
 
+	opts = append(opts, grpc.UseRawTcp())
+
 	// Priority: config.Port > serverPort > default (0).
 	port := int(config.Port)
 	if port == 0 {
