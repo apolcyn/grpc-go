@@ -35,6 +35,7 @@ package main
 
 import (
 	"math"
+	"net"
 	"runtime"
 	"sync"
 	"time"
@@ -169,6 +170,93 @@ func createConns(config *testpb.ClientConfig) ([]*grpc.ClientConn, func(), error
 	}, nil
 }
 
+func createRawConns(config *testpb.ClientConfig) ([]net.Conn, func(), error) {
+	// Create connections.
+	connCount := int(config.ClientChannels)
+	conns := make([]net.Conn, connCount, connCount)
+	for connIndex := 0; connIndex < connCount; connIndex++ {
+		conns[connIndex] = benchmark.NewTCPConn(config.ServerTargets[connIndex%len(config.ServerTargets)])
+	}
+
+	return conns, func() {
+		for _, conn := range conns {
+			conn.Close()
+		}
+	}, nil
+}
+
+func doRawUnaryCall(conn net.Conn) error {
+	recvd := make([]byte, 2)
+	expected := []byte{5, 6}
+
+	if _, err := conn.Write([]byte{3, 4}); err != nil {
+		grpclog.Println("write error, exiting handle raw conn")
+		panic("error")
+	}
+
+	if _, err := conn.Read(recvd); err != nil {
+		grpclog.Println("read error, exiting handle raw conn")
+		panic("error")
+	}
+
+	for i := 0; i < len(recvd); i++ {
+		if recvd[i] != expected[i] {
+			panic("received bad data")
+		}
+	}
+	return nil
+}
+
+func performRawRPCs(config *testpb.ClientConfig, conns []net.Conn, bc *benchmarkClient) error {
+	rpcCountPerConn := int(config.OutstandingRpcsPerChannel)
+	for ic, conn := range conns {
+		for j := 0; j < rpcCountPerConn; j++ {
+			// Create histogram for each goroutine.
+			idx := ic*rpcCountPerConn + j
+			bc.lockingHistograms[idx].histogram = stats.NewHistogram(bc.histogramOptions)
+			// Start goroutine on the created mutex and histogram.
+			go func(idx int) {
+				// TODO: do warm up if necessary.
+				// Now relying on worker client to reserve time to do warm up.
+				// The worker client needs to wait for some time after client is created,
+				// before starting benchmark.
+				done := make(chan bool)
+				for {
+					go func() {
+						start := time.Now()
+						if err := doRawUnaryCall(conn); err != nil {
+							select {
+							case <-bc.stop:
+							case done <- false:
+							}
+							return
+						}
+						//if err := benchmark.DoUnaryCall(client, reqSize, respSize); err != nil {
+						//	select {
+						//	case <-bc.stop:
+						//	case done <- false:
+						//	}
+						//	return
+						//}
+						elapse := time.Since(start)
+						bc.lockingHistograms[idx].add(int64(elapse))
+						select {
+						case <-bc.stop:
+						case done <- true:
+						}
+					}()
+					select {
+					case <-bc.stop:
+						return
+					case <-done:
+					}
+				}
+			}(idx)
+		}
+	}
+	return nil
+}
+
 func performRPCs(config *testpb.ClientConfig, conns []*grpc.ClientConn, bc *benchmarkClient) error {
 	// Read payload size and type from config.
 	var (
@@ -221,7 +309,8 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 	// Set running environment like how many cores to use.
 	setupClientEnv(config)
 
-	conns, closeConns, err := createConns(config)
+	//conns, closeConns, err := createConns(config)
+	conns, closeConns, err := createRawConns(config)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +330,7 @@ func startBenchmarkClient(config *testpb.ClientConfig) (*benchmarkClient, error)
 		closeConns:    closeConns,
 	}
 
-	if err = performRPCs(config, conns, bc); err != nil {
+	if err = performRawRPCs(config, conns, bc); err != nil {
 		// Close all connections if performRPCs failed.
 		closeConns()
 		return nil, err

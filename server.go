@@ -115,6 +115,7 @@ type options struct {
 	inTapHandle          tap.ServerInHandle
 	maxConcurrentStreams uint32
 	useHandlerImpl       bool // use http.Handler-based server
+	useRawTcp            bool
 }
 
 var defaultMaxMsgSize = 1024 * 1024 * 4 // use 4MB as the default message size limit
@@ -175,6 +176,12 @@ func UnaryInterceptor(i UnaryServerInterceptor) ServerOption {
 			panic("The unary server interceptor has been set.")
 		}
 		o.unaryInt = i
+	}
+}
+
+func UseRawTcp() ServerOption {
+	return func(o *options) {
+		o.useRawTcp = true
 	}
 }
 
@@ -425,8 +432,33 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 
 	if s.opts.useHandlerImpl {
 		s.serveUsingHandler(conn)
+	} else if s.opts.useRawTcp {
+		s.serverRawTcp(conn)
 	} else {
 		s.serveHTTP2Transport(conn, authInfo)
+	}
+}
+
+func (s *Server) serverRawTcp(c net.Conn) {
+	grpclog.Println("begin serve raw tcp conn")
+	for {
+		recvd := make([]byte, 2)
+		expected := []byte{3, 4}
+		if _, err := c.Read(recvd); err != nil {
+			grpclog.Println("read error, exiting handle raw conn")
+			return
+		}
+
+		for i := 0; i < len(recvd); i++ {
+			if recvd[i] != expected[i] {
+				panic("received bad data")
+			}
+		}
+
+		if _, err := c.Write([]byte{5, 6}); err != nil {
+			grpclog.Println("write error, exiting handle raw conn")
+			return
+		}
 	}
 }
 

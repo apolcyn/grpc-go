@@ -214,6 +214,14 @@ func DoByteBufStreamingRoundTrip(stream testpb.BenchmarkService_StreamingCallCli
 	return nil
 }
 
+func NewTCPConn(addr string) net.Conn {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		grpclog.Fatalf("NewClientConn(%q) failed to create a ClientConn %v", addr, err)
+	}
+	return conn
+}
+
 // NewClientConn creates a gRPC client connection to addr.
 func NewClientConn(addr string, opts ...grpc.DialOption) *grpc.ClientConn {
 	conn, err := grpc.Dial(addr, opts...)
