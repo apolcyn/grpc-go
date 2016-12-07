@@ -439,8 +439,23 @@ func (s *Server) handleRawConn(rawConn net.Conn) {
 	}
 }
 
+func writeRawTcp(c net.Conn, writeSig chan bool) {
+	for {
+		<-writeSig
+		num, err := c.Write([]byte{5, 6})
+		if err != nil {
+			panic("write error on server")
+		}
+		if num != 2 {
+			panic("bad write num")
+		}
+	}
+}
+
 func (s *Server) serverRawTcp(c net.Conn) {
 	grpclog.Println("begin serve raw tcp conn")
+	writeSig := make(chan bool, 1)
+	go func(c net.Conn, w chan bool) { writeRawTcp(c, w) }(c, writeSig)
 	for {
 		recvd := make([]byte, 2)
 		expected := []byte{3, 4}
@@ -459,13 +474,7 @@ func (s *Server) serverRawTcp(c net.Conn) {
 			}
 		}
 
-		num, err = c.Write([]byte{5, 6})
-		if err != nil {
-			panic("write error on server")
-		}
-		if num != 2 {
-			panic("bad read num")
-		}
+		writeSig <- true
 	}
 }
 
