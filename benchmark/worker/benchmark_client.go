@@ -231,10 +231,9 @@ func performRawRPCs(config *testpb.ClientConfig, conns []net.Conn, bc *benchmark
 				// Now relying on worker client to reserve time to do warm up.
 				// The worker client needs to wait for some time after client is created,
 				// before starting benchmark.
-				done := make(chan bool)
 				for {
 					start := time.Now()
-					if err := doRawUnaryCall(stream, reqSize, respSize); err != nil {
+					if err := doRawUnaryCall(conn); err != nil {
 						return
 					}
 					elapse := time.Since(start)
