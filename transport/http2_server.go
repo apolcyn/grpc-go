@@ -416,15 +416,21 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 		data := make([]byte, size)
 		copy(data, f.Data())
 
-		length := 7
-		var buf = make([]byte, length)
+		length := 2
+		var buf = make([]byte, 5+length)
 		// compression flag
 		buf[0] = 0
 		// Write length of b into buf
 		binary.BigEndian.PutUint32(buf[1:], uint32(length))
 		buf[5] = 0
 		buf[6] = 0
-		t.Write(s, buf, &Options{Last: false})
+
+		if (bytes.Compare(data, buf) == 0) {
+			t.Write(s, buf, &Options{Last: false})
+		} else {
+			grpclog.Println("byte buf data didn't match, writing to channel as normal")
+			s.write(recvMsg{data: data})
+		}
 	}
 	if f.Header().Flags.Has(http2.FlagDataEndStream) {
 		// Received the end of stream from the client.
