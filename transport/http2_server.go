@@ -638,31 +638,9 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		}
 		size := http2MaxFrameLen
 		// Wait until the stream has some quota to send the data.
-		sq, err := wait(s.ctx, nil, nil, t.shutdownChan, s.sendQuotaPool.acquire())
-		if err != nil {
-			return err
-		}
-		// Wait until the transport has some quota to send the data.
-		tq, err := wait(s.ctx, nil, nil, t.shutdownChan, t.sendQuotaPool.acquire())
-		if err != nil {
-			return err
-		}
-		if sq < size {
-			size = sq
-		}
-		if tq < size {
-			size = tq
-		}
 		p := r.Next(size)
 		ps := len(p)
-		if ps < sq {
-			// Overbooked stream quota. Return it back.
-			s.sendQuotaPool.add(sq - ps)
-		}
-		if ps < tq {
-			// Overbooked transport quota. Return it back.
-			t.sendQuotaPool.add(tq - ps)
-		}
+		// NOTE apolcyn, removed quota pool acquire here
 		t.framer.adjustNumWriters(1)
 		// Got some quota. Try to acquire writing privilege on the
 		// transport.

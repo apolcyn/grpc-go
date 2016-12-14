@@ -34,7 +34,6 @@
 package transport
 
 import (
-	"fmt"
 	"sync"
 
 	"golang.org/x/net/http2"
@@ -160,9 +159,7 @@ func (f *inFlow) onData(n uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pendingData += n
-	if f.pendingData+f.pendingUpdate > f.limit {
-		return fmt.Errorf("received %d-bytes data exceeding the limit %d bytes", f.pendingData+f.pendingUpdate, f.limit)
-	}
+	// NOTE apolcyn, removed window limit here
 	return nil
 }
 
