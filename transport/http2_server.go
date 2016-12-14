@@ -35,6 +35,7 @@ package transport
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
 	"io"
 	"math"
@@ -414,7 +415,16 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 		// Can this copy be eliminated?
 		data := make([]byte, size)
 		copy(data, f.Data())
-		s.write(recvMsg{data: data})
+
+		length := 7
+		var buf = make([]byte, length)
+		// compression flag
+		buf[0] = 0
+		// Write length of b into buf
+		binary.BigEndian.PutUint32(buf[1:], uint32(length))
+		buf[5] = 0
+		buf[6] = 0
+		t.Write(s, buf, &Options{Last: false})
 	}
 	if f.Header().Flags.Has(http2.FlagDataEndStream) {
 		// Received the end of stream from the client.
