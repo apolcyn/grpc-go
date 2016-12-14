@@ -45,7 +45,7 @@ const (
 	defaultWindowSize = 65535
 	// The initial window size for flow control.
 	initialWindowSize     = defaultWindowSize      // for an RPC
-	initialConnWindowSize = defaultWindowSize * 16 // for a connection
+	initialConnWindowSize = defaultWindowSize * 100 // for a connection
 )
 
 // The following defines various control items which could flow through
