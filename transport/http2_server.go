@@ -710,8 +710,8 @@ func (t *http2Server) applySettings(ss []http2.Setting) {
 	for _, s := range ss {
 		if s.ID == http2.SettingInitialWindowSize {
 			t.mu.Lock()
-			panic("setting initial window size to " + strconv.FormatInt(int64(s.Val), 10))
 			defer t.mu.Unlock()
+			grpclog.Println("applySettings: setting initial window size to " + strconv.FormatInt(int64(s.Val), 10))
 			for _, stream := range t.activeStreams {
 				stream.sendQuotaPool.add(int(s.Val - t.streamSendQuota))
 			}
