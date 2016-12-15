@@ -35,7 +35,6 @@ package main
 
 import (
 	"math"
-	"runtime"
 	"sync"
 	"time"
 
