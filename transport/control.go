@@ -37,6 +37,9 @@ import (
 	"fmt"
 	"sync"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+
 	"golang.org/x/net/http2"
 )
 
@@ -59,23 +62,23 @@ type windowUpdate struct {
 func (*windowUpdate) item() {}
 
 type writeMessage struct {
-	s    uint32
+	s    *Stream
 	data []byte
-	opts Options
+	opts *Options
 }
 
 func (*writeMessage) item() {}
 
 type writeHeader struct {
-	s  uint32
+	s  *Stream
 	md metadata.MD
 }
 
 func (*writeHeader) item() {}
 
 type writeStatus struct {
-	s          uint32
-	statusCode code.Code
+	s          *Stream
+	statusCode codes.Code
 	statusDesc string
 }
 
