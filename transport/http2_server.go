@@ -89,7 +89,9 @@ type http2Server struct {
 	state         transportState
 	activeStreams map[uint32]*Stream
 	// the per-stream outbound flow control window size set by the peer.
-	streamSendQuota uint32
+	streamSendQuota   uint32
+	writeBuffer       *bytes.Buffer
+	writeBufferReader *bytes.Reader
 }
 
 // newHTTP2Server constructs a ServerTransport based on HTTP2. ConnectionError is
@@ -125,23 +127,25 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 	}
 	var buf bytes.Buffer
 	t := &http2Server{
-		ctx:             context.Background(),
-		conn:            conn,
-		remoteAddr:      conn.RemoteAddr(),
-		localAddr:       conn.LocalAddr(),
-		authInfo:        config.AuthInfo,
-		framer:          framer,
-		hBuf:            &buf,
-		hEnc:            hpack.NewEncoder(&buf),
-		maxStreams:      maxStreams,
-		inTapHandle:     config.InTapHandle,
-		controlBuf:      newRecvBuffer(),
-		fc:              &inFlow{limit: initialConnWindowSize},
-		sendQuotaPool:   newQuotaPool(defaultWindowSize),
-		state:           reachable,
-		shutdownChan:    make(chan struct{}),
-		activeStreams:   make(map[uint32]*Stream),
-		streamSendQuota: defaultWindowSize,
+		ctx:               context.Background(),
+		conn:              conn,
+		remoteAddr:        conn.RemoteAddr(),
+		localAddr:         conn.LocalAddr(),
+		authInfo:          config.AuthInfo,
+		framer:            framer,
+		hBuf:              &buf,
+		hEnc:              hpack.NewEncoder(&buf),
+		maxStreams:        maxStreams,
+		inTapHandle:       config.InTapHandle,
+		controlBuf:        newRecvBuffer(),
+		fc:                &inFlow{limit: initialConnWindowSize},
+		sendQuotaPool:     newQuotaPool(defaultWindowSize),
+		state:             reachable,
+		shutdownChan:      make(chan struct{}),
+		activeStreams:     make(map[uint32]*Stream),
+		streamSendQuota:   defaultWindowSize,
+		writeBuffer:       bytes.NewBuffer(nil),
+		writeBufferReader: bytes.NewReader(nil),
 	}
 	if stats.On() {
 		t.ctx = stats.TagConn(t.ctx, &stats.ConnTagInfo{
@@ -637,7 +641,9 @@ func (t *http2Server) WriteFromController(s *Stream, data []byte, opts *Options,
 	if writeHeaderFrame {
 		t.WriteHeader(s, nil)
 	}
-	r := bytes.NewBuffer(data)
+	t.writeBufferReader.Reset(data)
+	t.writeBuffer.ReadFrom(t.writeBufferReader)
+	r := t.writeBuffer
 	for {
 		if r.Len() == 0 {
 			return nil
