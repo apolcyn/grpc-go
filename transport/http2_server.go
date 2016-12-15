@@ -622,7 +622,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 
 // Write converts the data into HTTP2 data frame and sends it out. Non-nil error
 // is returns if it fails (e.g., framing error, transport error).
-func (t *http2Server) WriteFromController(s *Stream, data []byte, opts *Options) error {
+func (t *http2Server) WriteFromController(s *Stream, data []byte, opts *Options, forceFlush bool) error {
 	// TODO(zhaoq): Support multi-writers for a single stream.
 	var writeHeaderFrame bool
 	s.mu.Lock()
@@ -681,7 +681,7 @@ func (t *http2Server) WriteFromController(s *Stream, data []byte, opts *Options)
 		default:
 		}
 		// NOTE: force flushing every time
-		if err := t.framer.writeData(true, s.id, false, p); err != nil {
+		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
@@ -739,7 +739,13 @@ func (t *http2Server) controller() {
 			case *ping:
 				t.framer.writePing(true, i.ack, i.data)
 			case *writeMessage:
-				if err := t.WriteFromController(i.s, i.data, i.opts); err != nil {
+				var forceFlush bool
+				if len(t.controlBuf.get()) == 0 {
+					forceFlush = true
+				} else {
+					forceFlush = false
+				}
+				if err := t.WriteFromController(i.s, i.data, i.opts, forceFlush); err != nil {
 					grpclog.Println("error writing message from controller")
 				}
 			case *writeHeader:
@@ -752,6 +758,7 @@ func (t *http2Server) controller() {
 				}
 			default:
 				grpclog.Printf("transport: http2Server.controller got unexpected item type %v\n", i)
+				panic("shouldn't be here")
 			}
 			continue
 		case <-t.shutdownChan:
