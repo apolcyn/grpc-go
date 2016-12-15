@@ -680,6 +680,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			}
 			return err
 		}
+		t.controlBuf.put(&writeMessage{s: s, data: data, opts: opts})
 		select {
 		case <-s.ctx.Done():
 			t.sendQuotaPool.add(ps)
@@ -756,6 +757,18 @@ func (t *http2Server) controller() {
 					t.framer.flushWrite()
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)
+				case *writeMessage:
+					if err := t.Write(i.s, i.data, &i.opts); err != nil {
+						grpclog.Println("error writing message from controller")
+					}
+				case *writeHeader:
+					if err := t.WriteHeader(i.s, i.md); err != nil {
+						grpclog.Println("error doing WriteHeader from controller")
+					}
+				case *writeStatus:
+					if err := t.WriteStatus(i.s, i.statusCode, i.statusDesc); err != nil {
+						grpclog.Println("error in WriteStatus from controller")
+					}
 				default:
 					grpclog.Printf("transport: http2Server.controller got unexpected item type %v\n", i)
 				}

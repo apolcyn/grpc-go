@@ -58,6 +58,29 @@ type windowUpdate struct {
 
 func (*windowUpdate) item() {}
 
+type writeMessage struct {
+	s    uint32
+	data []byte
+	opts Options
+}
+
+func (*writeMessage) item() {}
+
+type writeHeader struct {
+	s  uint32
+	md metadata.MD
+}
+
+func (*writeHeader) item() {}
+
+type writeStatus struct {
+	s          uint32
+	statusCode code.Code
+	statusDesc string
+}
+
+func (*writeStatus) item() {}
+
 type settings struct {
 	ack bool
 	ss  []http2.Setting
