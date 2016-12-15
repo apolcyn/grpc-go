@@ -67,10 +67,7 @@ type http2Server struct {
 	maxStreamID uint32               // max stream ID ever seen
 	authInfo    credentials.AuthInfo // auth info about the connection
 	inTapHandle tap.ServerInHandle
-	// writableChan synchronizes write access to the transport.
-	// A writer acquires the write lock by receiving a value on writableChan
-	// and releases it by sending on writableChan.
-	writableChan chan int
+	// NOTE: removed writableChan mutex
 	// shutdownChan is closed when Close is called.
 	// Blocking operations should select on shutdownChan to avoid
 	// blocking forever after Close.
@@ -142,7 +139,6 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		fc:              &inFlow{limit: initialConnWindowSize},
 		sendQuotaPool:   newQuotaPool(defaultWindowSize),
 		state:           reachable,
-		writableChan:    make(chan int, 1),
 		shutdownChan:    make(chan struct{}),
 		activeStreams:   make(map[uint32]*Stream),
 		streamSendQuota: defaultWindowSize,
@@ -156,7 +152,6 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		stats.HandleConn(t.ctx, connBegin)
 	}
 	go t.controller()
-	t.writableChan <- 0
 	return t, nil
 }
 
@@ -501,8 +496,13 @@ func (t *http2Server) writeHeaders(s *Stream, b *bytes.Buffer, endStream bool) e
 	return nil
 }
 
-// WriteHeader sends the header metedata md back to the client.
 func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
+	t.controlBuf.put(&writeHeader{s: s, md: md})
+	return nil
+}
+
+// WriteHeader sends the header metedata md back to the client.
+func (t *http2Server) WriteHeaderFromController(s *Stream, md metadata.MD) error {
 	s.mu.Lock()
 	if s.headerOk || s.state == streamDone {
 		s.mu.Unlock()
@@ -518,9 +518,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 	}
 	md = s.header
 	s.mu.Unlock()
-	if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-		return err
-	}
+	// NOTE: removed wait for writable chan in here
 	t.hBuf.Reset()
 	t.hEnc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
 	t.hEnc.WriteField(hpack.HeaderField{Name: "content-type", Value: "application/grpc"})
@@ -546,7 +544,12 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 		}
 		stats.HandleRPC(s.Context(), outHeader)
 	}
-	t.writableChan <- 0
+	// NOTE: removed refresh of writable chan in here
+	return nil
+}
+
+func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error {
+	t.controlBuf.put(&writeStatus{s: s, statusCode: statusCode, statusDesc: statusDesc})
 	return nil
 }
 
@@ -554,7 +557,7 @@ func (t *http2Server) WriteHeader(s *Stream, md metadata.MD) error {
 // There is no further I/O operations being able to perform on this stream.
 // TODO(zhaoq): Now it indicates the end of entire stream. Revisit if early
 // OK is adopted.
-func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc string) error {
+func (t *http2Server) WriteStatusFromController(s *Stream, statusCode codes.Code, statusDesc string) error {
 	var headersSent, hasHeader bool
 	s.mu.Lock()
 	if s.state == streamDone {
@@ -574,9 +577,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 		headersSent = true
 	}
 
-	if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-		return err
-	}
+	// NOTE: removed wait for writable chan in here
 	t.hBuf.Reset()
 	if !headersSent {
 		t.hEnc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
@@ -610,13 +611,18 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 		stats.HandleRPC(s.Context(), outTrailer)
 	}
 	t.closeStream(s)
-	t.writableChan <- 0
+	//NOTE: removed end of writeable chan in here
+	return nil
+}
+
+func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
+	t.controlBuf.put(&writeMessage{s: s, data: data, opts: opts})
 	return nil
 }
 
 // Write converts the data into HTTP2 data frame and sends it out. Non-nil error
 // is returns if it fails (e.g., framing error, transport error).
-func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
+func (t *http2Server) WriteFromController(s *Stream, data []byte, opts *Options, forceFlush bool) error {
 	// TODO(zhaoq): Support multi-writers for a single stream.
 	var writeHeaderFrame bool
 	s.mu.Lock()
@@ -663,45 +669,23 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			// Overbooked transport quota. Return it back.
 			t.sendQuotaPool.add(tq - ps)
 		}
-		t.framer.adjustNumWriters(1)
-		// Got some quota. Try to acquire writing privilege on the
-		// transport.
-		if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-			if _, ok := err.(StreamError); ok {
-				// Return the connection quota back.
-				t.sendQuotaPool.add(ps)
-			}
-			if t.framer.adjustNumWriters(-1) == 0 {
-				// This writer is the last one in this batch and has the
-				// responsibility to flush the buffered frames. It queues
-				// a flush request to controlBuf instead of flushing directly
-				// in order to avoid the race with other writing or flushing.
-				t.controlBuf.put(&flushIO{})
-			}
-			return err
-		}
+		// NOTE: removed waiting for a writable chan
 		select {
 		case <-s.ctx.Done():
 			t.sendQuotaPool.add(ps)
 			if t.framer.adjustNumWriters(-1) == 0 {
 				t.controlBuf.put(&flushIO{})
 			}
-			t.writableChan <- 0
+			// NOTE: removed writable chan check in here
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		var forceFlush bool
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
-			forceFlush = true
-		}
+		// NOTE: force flushing every time
 		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
-		}
-		t.writableChan <- 0
+		// NOTE removed waiting for chan writable in here
 	}
 
 }
@@ -727,43 +711,56 @@ func (t *http2Server) controller() {
 		select {
 		case i := <-t.controlBuf.get():
 			t.controlBuf.load()
-			select {
-			case <-t.writableChan:
-				switch i := i.(type) {
-				case *windowUpdate:
-					t.framer.writeWindowUpdate(true, i.streamID, i.increment)
-				case *settings:
-					if i.ack {
-						t.framer.writeSettingsAck(true)
-						t.applySettings(i.ss)
-					} else {
-						t.framer.writeSettings(true, i.ss...)
-					}
-				case *resetStream:
-					t.framer.writeRSTStream(true, i.streamID, i.code)
-				case *goAway:
-					t.mu.Lock()
-					if t.state == closing {
-						t.mu.Unlock()
-						// The transport is closing.
-						return
-					}
-					sid := t.maxStreamID
-					t.state = draining
-					t.mu.Unlock()
-					t.framer.writeGoAway(true, sid, http2.ErrCodeNo, nil)
-				case *flushIO:
-					t.framer.flushWrite()
-				case *ping:
-					t.framer.writePing(true, i.ack, i.data)
-				default:
-					grpclog.Printf("transport: http2Server.controller got unexpected item type %v\n", i)
+			switch i := i.(type) {
+			case *windowUpdate:
+				t.framer.writeWindowUpdate(true, i.streamID, i.increment)
+			case *settings:
+				if i.ack {
+					t.framer.writeSettingsAck(true)
+					t.applySettings(i.ss)
+				} else {
+					t.framer.writeSettings(true, i.ss...)
 				}
-				t.writableChan <- 0
-				continue
-			case <-t.shutdownChan:
-				return
+			case *resetStream:
+				t.framer.writeRSTStream(true, i.streamID, i.code)
+			case *goAway:
+				t.mu.Lock()
+				if t.state == closing {
+					t.mu.Unlock()
+					// The transport is closing.
+					return
+				}
+				sid := t.maxStreamID
+				t.state = draining
+				t.mu.Unlock()
+				t.framer.writeGoAway(true, sid, http2.ErrCodeNo, nil)
+			case *flushIO:
+				t.framer.flushWrite()
+			case *ping:
+				t.framer.writePing(true, i.ack, i.data)
+			case *writeMessage:
+				var forceFlush bool
+				if len(t.controlBuf.get()) == 0 {
+					forceFlush = true
+				} else {
+					forceFlush = false
+				}
+				if err := t.WriteFromController(i.s, i.data, i.opts, forceFlush); err != nil {
+					grpclog.Println("error writing message from controller")
+				}
+			case *writeHeader:
+				if err := t.WriteHeaderFromController(i.s, i.md); err != nil {
+					grpclog.Println("error doing WriteHeader from controller")
+				}
+			case *writeStatus:
+				if err := t.WriteStatusFromController(i.s, i.statusCode, i.statusDesc); err != nil {
+					grpclog.Println("error in WriteStatus from controller")
+				}
+			default:
+				grpclog.Printf("transport: http2Server.controller got unexpected item type %v\n", i)
+				panic("shouldn't be here")
 			}
+			continue
 		case <-t.shutdownChan:
 			return
 		}
