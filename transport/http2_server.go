@@ -749,10 +749,13 @@ func (t *http2Server) controller() {
 					t.mu.Unlock()
 					t.framer.writeGoAway(true, sid, http2.ErrCodeNo, nil)
 				case *flushIO:
-					t.framer.flushWrite()
+					if len(t.controlBuf.get()) == 0 && t.framer.adjustNumWriters(0) == 0 {
+						t.framer.flushWrite()
+					}
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)
 				default:
+					panic("shouldnt be here")
 					grpclog.Printf("transport: http2Server.controller got unexpected item type %v\n", i)
 				}
 				t.writableChan <- 0
