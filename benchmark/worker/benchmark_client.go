@@ -112,11 +112,7 @@ func printClientConfig(config *testpb.ClientConfig) {
 func setupClientEnv(config *testpb.ClientConfig) {
 	// Use all cpu cores available on machine by default.
 	// TODO: Revisit this for the optimal default setup.
-	if config.CoreLimit > 0 {
-		runtime.GOMAXPROCS(int(config.CoreLimit))
-	} else {
-		runtime.GOMAXPROCS(runtime.NumCPU())
-	}
+	// REMOVED
 }
 
 // createConns creates connections according to given config.
