@@ -83,7 +83,7 @@ type http2Server struct {
 	maxStreams uint32
 	// controlBuf delivers all the control related tasks (e.g., window
 	// updates, reset streams, and various settings) to the controller.
-	controlBuf *recvBuffer
+	controlBuf *controlBuffer
 	fc         *inFlow
 	// sendQuotaPool provides flow control to outbound message.
 	sendQuotaPool *quotaPool
@@ -138,7 +138,7 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		hEnc:            hpack.NewEncoder(&buf),
 		maxStreams:      maxStreams,
 		inTapHandle:     config.InTapHandle,
-		controlBuf:      newRecvBuffer(),
+		controlBuf:      newControlBuffer(),
 		fc:              &inFlow{limit: initialConnWindowSize},
 		sendQuotaPool:   newQuotaPool(defaultWindowSize),
 		state:           reachable,
