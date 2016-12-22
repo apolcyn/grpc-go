@@ -128,7 +128,6 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 	if r.err != nil {
 		return 0, r.err
 	}
-	defer func() { r.err = err }()
 	if r.last != nil && len(r.last) > 0 {
 		// Read remaining data left in last call.
 		copied := copy(p, r.last)
@@ -137,13 +136,16 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 	}
 	select {
 	case <-r.ctx.Done():
-		return 0, ContextErr(r.ctx.Err())
+		r.err = ContextErr(r.ctx.Err())
+		return 0, r.err
 	case <-r.goAway:
-		return 0, ErrStreamDrain
+		r.err = ErrStreamDrain
+		return 0, r.err
 	case m := <-r.recv.get():
 		r.recv.load()
 		if m.err != nil {
-			return 0, m.err
+			r.err = m.err
+			return 0, r.err
 		}
 		copied := copy(p, m.data)
 		r.last = m.data[copied:]
