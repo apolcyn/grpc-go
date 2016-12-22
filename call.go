@@ -64,7 +64,6 @@ func recvResponse(ctx context.Context, dopts dialOptions, t transport.ClientTran
 	if err != nil {
 		return
 	}
-	p := &parser{r: stream}
 	var inPayload *stats.InPayload
 	if stats.On() {
 		inPayload = &stats.InPayload{
@@ -72,7 +71,7 @@ func recvResponse(ctx context.Context, dopts dialOptions, t transport.ClientTran
 		}
 	}
 	for {
-		if err = recv(p, dopts.codec, stream, dopts.dc, reply, math.MaxInt32, inPayload); err != nil {
+		if err = recv(dopts.codec, stream, dopts.dc, reply, math.MaxInt32, inPayload); err != nil {
 			if err == io.EOF {
 				break
 			}

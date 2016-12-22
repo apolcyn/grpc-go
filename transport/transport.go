@@ -38,16 +38,26 @@ to complete various transactions (e.g., an RPC).
 package transport // import "google.golang.org/grpc/transport"
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"sync"
+	"errors"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/tap"
+)
+
+// The format of the payload: compressed or not?
+type PayloadFormat uint8
+
+const (
+	CompressionNone PayloadFormat = iota // no compression
+	CompressionMade
 )
 
 // recvMsg represents the received msg from the transport. All transport
@@ -121,36 +131,46 @@ type recvBufferReader struct {
 	err    error
 }
 
-// Read reads the next len(p) bytes from last. If last is drained, it tries to
-// read additional data from recv. It blocks if there no additional data available
-// in recv. If Read returns any non-nil error, it will continue to return that error.
-func (r *recvBufferReader) Read(p []byte) (n int, err error) {
+// Load attempts to reach a state where the recvBufferReader has data immediately
+// available for Read. It returns immediately if it contains any data that is available
+// without blocking, otherwise it blocks until a recvMessage or an error is received.
+func (r *recvBufferReader) Load() (err error) {
 	if r.err != nil {
-		return 0, r.err
+		return r.err
 	}
 	if r.last != nil && len(r.last) > 0 {
-		// Read remaining data left in last call.
-		copied := copy(p, r.last)
-		r.last = r.last[copied:]
-		return copied, nil
+		// Already have data left from previous reads.
+		return nil
 	}
 	select {
 	case <-r.ctx.Done():
 		r.err = ContextErr(r.ctx.Err())
-		return 0, r.err
+		return r.err
 	case <-r.goAway:
 		r.err = ErrStreamDrain
-		return 0, r.err
+		return r.err
 	case m := <-r.recv.get():
 		r.recv.load()
 		if m.err != nil {
 			r.err = m.err
-			return 0, r.err
+			return r.err
 		}
-		copied := copy(p, m.data)
-		r.last = m.data[copied:]
+		r.last = m.data
+		return nil
+	}
+}
+
+func (r *recvBufferReader) NextBuffered(p []byte) (n int, err error) {
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.last != nil && len(r.last) > 0 {
+		// Read remaining data left in last call but hold onto it for future reads
+		copied := copy(p, r.last)
+		r.last = r.last[copied:]
 		return copied, nil
 	}
+	return 0, nil
 }
 
 // All items in an out of a controlBuffer should be the same type.
@@ -237,7 +257,7 @@ type Stream struct {
 	recvCompress string
 	sendCompress string
 	buf          *recvBuffer
-	dec          io.Reader
+	dec          *recvBufferReader
 	fc           *inFlow
 	recvQuota    uint32
 	// The accumulated inbound quota pending for window update.
@@ -369,15 +389,96 @@ func (s *Stream) write(m recvMsg) {
 	s.buf.put(m)
 }
 
-// Read reads all the data available for this Stream from the transport and
-// passes them into the decoder, which converts them into a gRPC message stream.
-// The error is io.EOF when the stream is done or another non-nil error if
-// the stream broke.
-func (s *Stream) Read(p []byte) (n int, err error) {
-	n, err = s.dec.Read(p)
-	if err != nil {
-		return
+// parser reads complete gRPC messages from the underlying reader.
+type parser struct {
+	// r is the underlying reader.
+	// See the comment on recvMsg for the permissible
+	// error types.
+	r io.Reader
+
+	// The header of a gRPC message. Find more detail
+	// at http://www.grpc.io/docs/guides/wire.html.
+	header [5]byte
+}
+
+// recvMsg reads a complete gRPC message from the stream.
+//
+// It returns the message and its payload (compression/encoding)
+// format. The caller owns the returned msg memory.
+//
+// If there is an error, possible values are:
+//   * io.EOF, when no messages remain
+//   * io.ErrUnexpectedEOF
+//   * of type transport.ConnectionError
+//   * of type transport.StreamError
+// No other error values or types must be returned, which also means
+// that the underlying io.Reader must not return an incompatible
+// error.
+func (s *Stream) RecvMsg(maxMsgSize int) (pf PayloadFormat, msg []byte, err error) {
+	var n int
+	var header [5]byte
+	i := 0
+	pendingWindowUpdate := 0
+	// first read the 5 byte header, updating flow control as needed
+	for i < 5 {
+		// try to read data that's immediately available
+		n, err = s.dec.NextBuffered(header[i:])
+		i += n
+		pendingWindowUpdate += n
+		if err != nil {
+			s.windowHandler(pendingWindowUpdate)
+			return 0, nil, err
+		}
+		if i < 5 {
+			s.windowHandler(pendingWindowUpdate)
+			pendingWindowUpdate = 0
+			if err = s.dec.Load(); err != nil {
+				return 0, nil, err
+			}
+		}
 	}
+
+	pf = PayloadFormat(header[0])
+	length := binary.BigEndian.Uint32(header[1:])
+
+	if length == 0 {
+		s.windowHandler(pendingWindowUpdate)
+		return pf, nil, nil
+	}
+	if length > uint32(maxMsgSize) {
+		s.windowHandler(pendingWindowUpdate)
+		// TODO(apolcyn) use error code and message
+		return 0, nil, errors.New("grpc: received message length exceeding the max size")
+	}
+
+	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
+	// of making it for each message:
+	msg = make([]byte, int(length))
+	i = 0
+	for i < int(length) {
+		// try to read data that's immediately available without blocking
+		n, err = s.dec.NextBuffered(msg[i:])
+		i += n
+		pendingWindowUpdate += n
+		if err != nil {
+			s.windowHandler(pendingWindowUpdate)
+			return 0, nil, err
+		}
+		if i < int(length) {
+			s.windowHandler(pendingWindowUpdate)
+			pendingWindowUpdate = 0
+			if err = s.dec.Load(); err != nil {
+				return 0, nil, err
+			}
+		}
+	}
+	if pendingWindowUpdate > 0 {
+		s.windowHandler(pendingWindowUpdate)
+	}
+	return pf, msg, nil
+}
+
+func (s *Stream) Discard(n int) {
 	s.windowHandler(n)
 	return
 }

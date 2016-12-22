@@ -218,7 +218,6 @@ func newClientStream(ctx context.Context, desc *StreamDesc, cc *ClientConn, meth
 		put: put,
 		t:   t,
 		s:   s,
-		p:   &parser{r: s},
 
 		tracing: EnableTracing,
 		trInfo:  trInfo,
@@ -261,7 +260,6 @@ type clientStream struct {
 	c      callInfo
 	t      transport.ClientTransport
 	s      *transport.Stream
-	p      *parser
 	desc   *StreamDesc
 	codec  Codec
 	cp     Compressor
@@ -379,7 +377,7 @@ func (cs *clientStream) RecvMsg(m interface{}) (err error) {
 			Client: true,
 		}
 	}
-	err = recv(cs.p, cs.codec, cs.s, cs.dc, m, math.MaxInt32, inPayload)
+	err = recv(cs.codec, cs.s, cs.dc, m, math.MaxInt32, inPayload)
 	defer func() {
 		// err != nil indicates the termination of the stream.
 		if err != nil {
@@ -402,7 +400,7 @@ func (cs *clientStream) RecvMsg(m interface{}) (err error) {
 		}
 		// Special handling for client streaming rpc.
 		// This recv expects EOF or errors, so we don't collect inPayload.
-		err = recv(cs.p, cs.codec, cs.s, cs.dc, m, math.MaxInt32, nil)
+		err = recv(cs.codec, cs.s, cs.dc, m, math.MaxInt32, nil)
 		cs.closeTransportStream(err)
 		if err == nil {
 			return toRPCErr(errors.New("grpc: client streaming protocol violation: get <nil>, want <EOF>"))
@@ -510,7 +508,6 @@ type ServerStream interface {
 type serverStream struct {
 	t          transport.ServerTransport
 	s          *transport.Stream
-	p          *parser
 	codec      Codec
 	cp         Compressor
 	dc         Decompressor
@@ -604,7 +601,7 @@ func (ss *serverStream) RecvMsg(m interface{}) (err error) {
 	if stats.On() {
 		inPayload = &stats.InPayload{}
 	}
-	if err := recv(ss.p, ss.codec, ss.s, ss.dc, m, ss.maxMsgSize, inPayload); err != nil {
+	if err := recv(ss.codec, ss.s, ss.dc, m, ss.maxMsgSize, inPayload); err != nil {
 		if err == io.EOF {
 			return err
 		}

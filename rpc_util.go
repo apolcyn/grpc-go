@@ -169,64 +169,6 @@ func FailFast(failFast bool) CallOption {
 	})
 }
 
-// The format of the payload: compressed or not?
-type payloadFormat uint8
-
-const (
-	compressionNone payloadFormat = iota // no compression
-	compressionMade
-)
-
-// parser reads complete gRPC messages from the underlying reader.
-type parser struct {
-	// r is the underlying reader.
-	// See the comment on recvMsg for the permissible
-	// error types.
-	r io.Reader
-
-	// The header of a gRPC message. Find more detail
-	// at http://www.grpc.io/docs/guides/wire.html.
-	header [5]byte
-}
-
-// recvMsg reads a complete gRPC message from the stream.
-//
-// It returns the message and its payload (compression/encoding)
-// format. The caller owns the returned msg memory.
-//
-// If there is an error, possible values are:
-//   * io.EOF, when no messages remain
-//   * io.ErrUnexpectedEOF
-//   * of type transport.ConnectionError
-//   * of type transport.StreamError
-// No other error values or types must be returned, which also means
-// that the underlying io.Reader must not return an incompatible
-// error.
-func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
-		return 0, nil, err
-	}
-
-	pf = payloadFormat(p.header[0])
-	length := binary.BigEndian.Uint32(p.header[1:])
-
-	if length == 0 {
-		return pf, nil, nil
-	}
-	if length > uint32(maxMsgSize) {
-		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
-	}
-	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
-	// of making it for each message:
-	msg = make([]byte, int(length))
-	if _, err := io.ReadFull(p.r, msg); err != nil {
-		if err == io.EOF {
-			err = io.ErrUnexpectedEOF
-		}
-		return 0, nil, err
-	}
-	return pf, msg, nil
-}
 
 // encode serializes msg and prepends the message header. If msg is nil, it
 // generates the message header of 0 message length.
@@ -269,9 +211,9 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer, outPayl
 
 	// Write payload format
 	if cp == nil {
-		buf[0] = byte(compressionNone)
+		buf[0] = byte(transport.CompressionNone)
 	} else {
-		buf[0] = byte(compressionMade)
+		buf[0] = byte(transport.CompressionMade)
 	}
 	// Write length of b into buf
 	binary.BigEndian.PutUint32(buf[1:], uint32(length))
@@ -285,10 +227,10 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer, outPayl
 	return buf, nil
 }
 
-func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) error {
+func checkRecvPayload(pf transport.PayloadFormat, recvCompress string, dc Decompressor) error {
 	switch pf {
-	case compressionNone:
-	case compressionMade:
+	case transport.CompressionNone:
+	case transport.CompressionMade:
 		if dc == nil || recvCompress != dc.Type() {
 			return Errorf(codes.Unimplemented, "grpc: Decompressor is not installed for grpc-encoding %q", recvCompress)
 		}
@@ -298,8 +240,8 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 	return nil
 }
 
-func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int, inPayload *stats.InPayload) error {
-	pf, d, err := p.recvMsg(maxMsgSize)
+func recv(c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int, inPayload *stats.InPayload) error {
+	pf, d, err := s.RecvMsg(maxMsgSize)
 	if err != nil {
 		return err
 	}
@@ -309,7 +251,7 @@ func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{
 	if err := checkRecvPayload(pf, s.RecvCompress(), dc); err != nil {
 		return err
 	}
-	if pf == compressionMade {
+	if pf == transport.CompressionMade {
 		d, err = dc.Do(bytes.NewReader(d))
 		if err != nil {
 			return Errorf(codes.Internal, "grpc: failed to decompress the received message %v", err)
