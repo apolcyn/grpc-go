@@ -81,6 +81,7 @@ type http2Server struct {
 	// controlBuf delivers all the control related tasks (e.g., window
 	// updates, reset streams, and various settings) to the controller.
 	controlBuf *controlBuffer
+	writeBuffer *writeBuffer
 	fc         *inFlow
 	// sendQuotaPool provides flow control to outbound message.
 	sendQuotaPool *quotaPool
@@ -136,6 +137,7 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		maxStreams:      maxStreams,
 		inTapHandle:     config.InTapHandle,
 		controlBuf:      newControlBuffer(),
+		writeBuffer:     newWriteBuffer(),
 		fc:              &inFlow{limit: initialConnWindowSize},
 		sendQuotaPool:   newQuotaPool(defaultWindowSize),
 		state:           reachable,
@@ -616,7 +618,7 @@ func (t *http2Server) WriteStatusFromController(s *Stream, statusCode codes.Code
 }
 
 func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
-	t.controlBuf.put(&writeMessage{s: s, data: data, opts: opts})
+	t.writeBuffer.put(writeMsg{s: s, data: data, opts: opts})
 	return nil
 }
 
@@ -738,16 +740,6 @@ func (t *http2Server) controller() {
 				t.framer.flushWrite()
 			case *ping:
 				t.framer.writePing(true, i.ack, i.data)
-			case *writeMessage:
-				var forceFlush bool
-				if len(t.controlBuf.get()) == 0 {
-					forceFlush = true
-				} else {
-					forceFlush = false
-				}
-				if err := t.WriteFromController(i.s, i.data, i.opts, forceFlush); err != nil {
-					grpclog.Println("error writing message from controller")
-				}
 			case *writeHeader:
 				if err := t.WriteHeaderFromController(i.s, i.md); err != nil {
 					grpclog.Println("error doing WriteHeader from controller")
@@ -763,6 +755,17 @@ func (t *http2Server) controller() {
 			continue
 		case <-t.shutdownChan:
 			return
+		case w := <-t.writeBuffer.get():
+				t.writeBuffer.load()
+				var forceFlush bool
+				if len(t.writeBuffer.get()) == 0 {
+					forceFlush = true
+				} else {
+					forceFlush = false
+				}
+				if err := t.WriteFromController(w.s, w.data, w.opts, forceFlush); err != nil {
+					grpclog.Println("error writing message from controller")
+				}
 		}
 	}
 }
