@@ -240,7 +240,7 @@ type writeBuffer struct {
 
 func newWriteBuffer() *writeBuffer {
 	b := &writeBuffer{
-		c: make(chan writeMsg, 1),
+		c: make(chan writeMsg, 100),
 	}
 	return b
 }
