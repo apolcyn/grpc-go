@@ -37,7 +37,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -53,9 +52,9 @@ import (
 )
 
 var (
-	driverPort = flag.Int("driver_port", 10000, "port for communication with driver")
-	serverPort = flag.Int("server_port", 0, "port for benchmark server if not specified by server config message")
-	pprofPort  = flag.Int("pprof_port", 6060, "port for pprof debug server to listen on")
+	driverPort    = flag.Int("driver_port", 10000, "port for communication with driver")
+	serverPort    = flag.Int("server_port", 0, "port for benchmark server if not specified by server config message")
+	pprofPort     = flag.Int("pprof_port", 6060, "port for pprof debug server to listen on")
 	blockProfRate = flag.Int("block_prof_rate", 0, "fraction of goroutine blocking events to report in blocking profile")
 )
 
@@ -232,11 +231,11 @@ func main() {
 		s.Stop()
 	}()
 
-	runtime.SetBlockProfileRate(blockProfRate)
+	runtime.SetBlockProfileRate(*blockProfRate)
 
 	go func() {
-		grpclog.Println("Starting pprof server on port " + strconv.FormatInt(int64(pprofPort), 10))
-		grpclog.Println(http.ListenAndServe("localhost:" + strconv.FormatInt(int64(pprofPort), 10)))
+		grpclog.Println("Starting pprof server on port " + strconv.FormatInt(int64(*pprofPort), 10))
+		grpclog.Println(http.ListenAndServe("localhost:" + strconv.FormatInt(int64(*pprofPort), 10), nil))
 	}()
 
 	s.Serve(lis)
