@@ -230,7 +230,7 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 
 // encode serializes msg and prepends the message header. If msg is nil, it
 // generates the message header of 0 message length.
-func encodeOntoSlice(c CacheUsageCodec, msg interface{}, cp Compressor, cbuf *bytes.Buffer, outPayload *stats.OutPayload, outSlice []byte) ([]byte, error) {
+func encodeOntoSlice(c CacheUsageCodec, msg interface{}, outPayload *stats.OutPayload, outSlice []byte) error {
 	var (
 		length uint
 	)
@@ -239,7 +239,7 @@ func encodeOntoSlice(c CacheUsageCodec, msg interface{}, cp Compressor, cbuf *by
 		// TODO(zhaoq): optimize to reduce memory alloc and copying.
 		err = c.MarshalOntoSlice(msg, outSlice[5:])
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if outPayload != nil {
 			outPayload.Payload = msg
@@ -247,16 +247,10 @@ func encodeOntoSlice(c CacheUsageCodec, msg interface{}, cp Compressor, cbuf *by
 			outPayload.Data = outSlice
 			outPayload.Length = len(outSlice)
 		}
-		if cp != nil {
-			if err := cp.Do(cbuf, outSlice); err != nil {
-				return nil, err
-			}
-			outSlice = cbuf.Bytes()
-		}
-		length = uint(len(b))
+		length = uint(len(outSlice[5:]))
 	}
 	if length > math.MaxUint32 {
-		return nil, Errorf(codes.InvalidArgument, "grpc: message too large (%d bytes)", length)
+		return Errorf(codes.InvalidArgument, "grpc: message too large (%d bytes)", length)
 	}
 
 	const (
@@ -264,20 +258,16 @@ func encodeOntoSlice(c CacheUsageCodec, msg interface{}, cp Compressor, cbuf *by
 		sizeLen    = 4
 	)
 
-	// Write payload format
-	if cp == nil {
-		outSlice[0] = byte(compressionNone)
-	} else {
-		outSlice[0] = byte(compressionMade)
-	}
+	// This optimization not supported with compression
+	outSlice[0] = byte(compressionNone)
 	// Write length of b into buf
 	binary.BigEndian.PutUint32(outSlice[1:], uint32(length))
 
 	if outPayload != nil {
-		outPayload.WireLength = len(outSlice[5:])
+		outPayload.WireLength = int(length)
 	}
 
-	return buf, nil
+	return nil
 }
 
 // encode serializes msg and prepends the message header. If msg is nil, it

@@ -565,12 +565,16 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 	if stats.On() {
 		outPayload = &stats.OutPayload{}
 	}
-	if cc, ok := ss.codec.(CacheUsageCodec); ok {
-		out := slicealloc(cc.ComputeMarshalledLength(m))
-		defer func() { slicefree(out) }
-		err := encodeOntoSlice(ss.codec, m, ss.cp, ss.cbuf, outPayload, out)
+	var out []byte
+	// Marshal onto preallocd slice if possible. Enabled
+	// only if the stream's Codec supports it and compression isn't being used
+	if cc, ok := ss.codec.(CacheUsageCodec); ok && ss.cp == nil {
+		// pre-allocate the marshalled slice but make room for the grpc header
+		out = slicealloc(cc.ComputeMarshalledLength(m) + 5)
+		defer func() { slicefree(&out) }()
+		err = encodeOntoSlice(cc, m, outPayload, out)
 	} else {
-		out, err := encode(ss.codec, m, ss.cp, ss.cbuf, outPayload)
+		out, err = encode(ss.codec, m, ss.cp, ss.cbuf, outPayload)
 	}
 	defer func() {
 		if ss.cbuf != nil {
