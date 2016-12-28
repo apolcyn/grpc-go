@@ -565,7 +565,13 @@ func (ss *serverStream) SendMsg(m interface{}) (err error) {
 	if stats.On() {
 		outPayload = &stats.OutPayload{}
 	}
-	out, err := encode(ss.codec, m, ss.cp, ss.cbuf, outPayload)
+	if cc, ok := ss.codec.(CacheUsageCodec); ok {
+		out := slicealloc(cc.ComputeMarshalledLength(m))
+		defer func() { slicefree(out) }
+		err := encodeOntoSlice(ss.codec, m, ss.cp, ss.cbuf, outPayload, out)
+	} else {
+		out, err := encode(ss.codec, m, ss.cp, ss.cbuf, outPayload)
+	}
 	defer func() {
 		if ss.cbuf != nil {
 			ss.cbuf.Reset()

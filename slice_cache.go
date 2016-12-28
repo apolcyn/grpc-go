@@ -48,7 +48,7 @@ func slicealloc(n int) (buf []byte) {
 	for i := range slicePools.sliceCaches {
 		if bufCap := initialMsgBufSize << uint(i); minCap <= bufCap {
 			minCap = bufCap // round up to this buffer size class
-			sliceCache := &slicePools.sliceCaches[i]
+			sliceCache := slicePools.sliceCaches[i]
 			buf = sliceCache.sliceAlloc()
 			if buf != nil {
 				if c := cap(buf); c < minCap {
@@ -71,12 +71,14 @@ func slicealloc(n int) (buf []byte) {
 var bufSizeClass = make(map[int]int, numBufSizes) // (initialMsgBufSize << i) -> i
 
 var slicePools struct {
-	sliceCaches [numBufSizes]sliceCache
+	sliceCaches [numBufSizes]*sliceCache
 }
 
 func init() {
 	for i := 0; i < numBufSizes; i++ {
-		bufSizeClass[initialMsgBufSize<<uint(i)] = i
+		sliceSize := initialMsgBufSize<<uint(i)
+		bufSizeClass[sliceSize] = i
+		slicePools.sliceCaches[i] = &sliceCache{cache:&ringCache{}, sliceSize: sliceSize}
 	}
 }
 

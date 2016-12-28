@@ -38,10 +38,10 @@ import "testing"
 func TestNormalSlicePoolsUsage(t *testing.T) {
 	sizes := [6]int{1, 3, 17, 59, 304, 100300}
 	// popping when empty should return nil
-	for i, v := range sizes {
+	for _, v := range sizes {
 		s := slicealloc(v)
-		if cap(s) != v {
-			t.Fatalf("incorrect slice size returned from cache")
+		if cap(s) < v {
+			t.Fatalf("incorrect slice size %d returned from cache. expected cap %d", cap(s), v)
 		}
 		slicefree(&s)
 	}

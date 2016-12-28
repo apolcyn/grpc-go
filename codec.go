@@ -51,8 +51,60 @@ type Codec interface {
 	String() string
 }
 
+// Codec defines the interface gRPC uses to encode and decode messages.
+type CacheUsageCodec interface {
+	MarshalOntoSlice(v interface{}, outSlice []byte) error
+	ComputeMarshalledLength(v interface{}) int
+}
+
 // protoCodec is a Codec implementation with protobuf. It is the default codec for gRPC.
 type protoCodec struct {
+}
+
+func (p protoCodec) ComputeMarshalledLength(v interface{}) int {
+	return proto.Size(v.(proto.Message))
+}
+
+func (p protoCodec) MarshalOntoSlice(v interface{}, outSlice []byte) error {
+	var protoMsg = v.(proto.Message)
+	var token = atomic.AddUint32(&globalBufCacheToken, 1)
+
+	buffer := globalBufAlloc(token)
+	marshalSlice := slicealloc(len(outSlice))
+	buffer.SetBuf(marshalSlice)
+	buffer.Reset()
+	err := buffer.Marshal(protoMsg)
+	if err != nil {
+		return err
+	}
+	outSlice = outSlice[0:0]
+	copy(outSlice, buffer.Bytes())
+	buffer.SetBuf(nil)
+	slicefree(&marshalSlice)
+	globalBufFree(buffer, token)
+	return err
+}
+
+func (p protoCodec) MarshalSliceCache(v interface{}) ([]byte, error) {
+	var protoMsg = v.(proto.Message)
+	var sizeNeeded = proto.Size(protoMsg)
+	var token = atomic.AddUint32(&globalBufCacheToken, 1)
+
+	buffer := globalBufAlloc(token)
+
+	newSlice := slicealloc(sizeNeeded)
+
+	buffer.SetBuf(newSlice)
+	buffer.Reset()
+	err := buffer.Marshal(protoMsg)
+	if err != nil {
+		return nil, err
+	}
+	out := slicealloc(len(buffer.Bytes()))
+	copy(out, buffer.Bytes())
+	buffer.SetBuf(nil)
+	globalBufFree(buffer, token)
+	return out, err
 }
 
 func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
