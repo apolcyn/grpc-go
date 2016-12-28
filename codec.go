@@ -58,12 +58,15 @@ type protoCodec struct {
 func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	const (
 		protoSizeFieldLength = 4
+		grpcHeaderLength     = 5
 	)
 
 	var protoMsg = v.(proto.Message)
-	// adding 4 to proto.Size avoids an extra allocation when appending the 4 byte length
-	// field in 'proto.Buffer.enc_len_thing'
-	var sizeNeeded = proto.Size(protoMsg) + protoSizeFieldLength
+	// Two Additions to "proto.Size" are made here. Adding 4 to proto.Size avoids an
+	// extra allocation when appending the 4 byte length field in 'proto.Buffer.enc_len_thing'
+	// Adding 5 more bytes for the header field leaves room to prepend the
+	// grpc message header without another copy/alloc of the marshalled slice.
+	var sizeNeeded = proto.Size(protoMsg) + protoSizeFieldLength + grpcHeaderLength
 	var token = atomic.AddUint32(&globalBufCacheToken, 1)
 
 	buffer := globalBufAlloc(token)

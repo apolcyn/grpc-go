@@ -235,7 +235,7 @@ func main() {
 
 	go func() {
 		grpclog.Println("Starting pprof server on port " + strconv.FormatInt(int64(*pprofPort), 10))
-		grpclog.Println(http.ListenAndServe("localhost:" + strconv.FormatInt(int64(*pprofPort), 10), nil))
+		grpclog.Println(http.ListenAndServe("localhost:"+strconv.FormatInt(int64(*pprofPort), 10), nil))
 	}()
 
 	s.Serve(lis)
