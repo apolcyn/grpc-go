@@ -35,6 +35,7 @@ package grpc
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -70,9 +71,9 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	// Adding 5 more bytes for the header field leaves room to prepend the
 	// grpc message header without another copy/alloc of the marshalled slice.
 	var sizeNeeded = proto.Size(protoMsg) + protoSizeFieldLength + grpcHeaderLength
-	//var token = atomic.AddUint32(&globalBufCacheToken, 1)
+	var token = atomic.AddUint32(&globalBufCacheToken, 1)
 
-	buffer := globalBufAlloc()
+	buffer := globalBufAlloc(token)
 
 	newSlice := make([]byte, sizeNeeded)
 
@@ -84,17 +85,17 @@ func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	}
 	out := buffer.Bytes()
 	buffer.SetBuf(nil)
-	globalBufFree(buffer)
+	globalBufFree(buffer, token)
 	return out, err
 }
 
 func (p protoCodec) Unmarshal(data []byte, v interface{}) error {
-	//var token = atomic.AddUint32(&globalBufCacheToken, 1)
-	buffer := globalBufAlloc()
+	var token = atomic.AddUint32(&globalBufCacheToken, 1)
+	buffer := globalBufAlloc(token)
 	buffer.SetBuf(data)
 	err := buffer.Unmarshal(v.(proto.Message))
 	buffer.SetBuf(nil)
-	globalBufFree(buffer)
+	globalBufFree(buffer, token)
 	return err
 }
 
@@ -103,13 +104,112 @@ func (protoCodec) String() string {
 }
 
 var (
-	bufCachePool = &sync.Pool{New: func() interface{} { return &proto.Buffer{} }}
+	poolSize            = uint32(64)
+	globalBufCacheToken = uint32(0)
+	bufCachePool        = newBufCacheArray(poolSize)
 )
 
-func globalBufAlloc() *proto.Buffer {
-	return bufCachePool.Get().(*proto.Buffer)
+func newBufCacheArray(amount uint32) []*bufCache {
+	out := make([]*bufCache, amount)
+
+	for i := uint32(0); i < amount; i++ {
+		out[i] = &bufCache{cache: &ringCache{}}
+	}
+
+	return out
 }
 
-func globalBufFree(buf *proto.Buffer) {
-	bufCachePool.Put(buf)
+func globalBufAlloc(token uint32) *proto.Buffer {
+	index := token % poolSize
+	return bufCachePool[index].bufAlloc()
+}
+
+func globalBufFree(buf *proto.Buffer, token uint32) {
+	index := token % poolSize
+	bufCachePool[index].bufFree(buf)
+}
+
+type ringCache struct {
+	// The ring holds entries in the indexes i%maxPerRing for i in [readIndex, writeIndex).
+	// If readIndex == writeIndex, there is nothing in the ring.
+	// If readIndex+maxPerRing == writeIndex, the ring is full.
+	// The readIndex and writeIndex are atomic values used for synchronization:
+	// the readIndex must be incremented only after removing ring[readIndex%maxPerRing],
+	// because the increment makes that location available for writing,
+	// and the writeIndex must be incremented only after adding ring[writeIndex%maxPerRing],
+	// because the increment makes that location available for reading.
+	// Although the reader and writer communicate via atomic operations,
+	// it is only safe for one such reader and one such writer to be doing
+	// these operations. Readers synchronize on readMu to ensure that
+	// there is only one active reader at a time, and similarly writers synchronize
+	// on writeMu to ensure that there is only one active writer at a time.
+	// Using uint64 for index in order to assume there will never be any overflow.
+	ring       [maxPerRing]interface{}
+	readMu     sync.Mutex
+	readIndex  uint64
+	writeMu    sync.Mutex
+	writeIndex uint64
+}
+
+// Note may want to change for more than 600 streams per channel, depending on the common
+// number of streams per channel.
+const maxPerRing = 600
+
+// push pushes the object into the buffer if possible.
+// It reports whether the message was stored into the buffer.
+// (If not, the buffer was full.)
+func (s *ringCache) push(m interface{}) bool {
+	i := atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		return false
+	}
+	s.writeMu.Lock()
+	i = atomic.LoadUint64(&s.writeIndex)
+	if i-atomic.LoadUint64(&s.readIndex) >= maxPerRing {
+		s.writeMu.Unlock()
+		return false
+	}
+	s.ring[i%maxPerRing] = m
+	atomic.StoreUint64(&s.writeIndex, i+1)
+	s.writeMu.Unlock()
+	return true
+}
+
+// pop takes out and returns the object from the ring buffer.
+// It returns nil if the buffer is empty.
+func (s *ringCache) pop() interface{} {
+	i := atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		return nil
+	}
+	s.readMu.Lock()
+	i = atomic.LoadUint64(&s.readIndex)
+	if i == atomic.LoadUint64(&s.writeIndex) {
+		s.readMu.Unlock()
+		return nil
+	}
+	m := s.ring[i%maxPerRing]
+	s.ring[i%maxPerRing] = nil
+	atomic.StoreUint64(&s.readIndex, i+1)
+	s.readMu.Unlock()
+	return m
+}
+
+type bufCache struct {
+	cache *ringCache
+}
+
+func (bc *bufCache) bufAlloc() *proto.Buffer {
+	pb := bc.cache.pop()
+	if pb == nil {
+		pb = &proto.Buffer{}
+	}
+	return pb.(*proto.Buffer)
+}
+
+func (bc *bufCache) bufFree(pb *proto.Buffer) {
+	if pb == nil {
+		panic("freeing a nil proto.Buffer")
+	}
+	bc.cache.push(pb)
 }
