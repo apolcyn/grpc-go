@@ -54,6 +54,10 @@ type Codec interface {
 type protoCodec struct {
 }
 
+func NewProtoCodec() *protoCodec {
+	return &protoCodec{}
+}
+
 func (p protoCodec) Marshal(v interface{}) ([]byte, error) {
 	const (
 		protoSizeFieldLength = 4
