@@ -160,15 +160,19 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 	return t, nil
 }
 
+func allocStream() *Stream {
+	return &Stream{}
+}
+
 // operateHeader takes action on the decoded headers.
 func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(*Stream), traceCtx func(context.Context, string) context.Context) (close bool) {
 	buf := newRecvBuffer()
-	s := &Stream{
-		id:  frame.Header().StreamID,
-		st:  t,
-		buf: buf,
-		fc:  &inFlow{limit: initialWindowSize},
-	}
+	s := allocStream()
+
+	s.id = frame.Header().StreamID
+	s.st = t
+	s.buf = buf
+	s.fc = &inFlow{limit: initialWindowSize}
 
 	var state decodeState
 	for _, hf := range frame.Fields {
