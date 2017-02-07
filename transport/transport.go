@@ -159,6 +159,50 @@ type item interface {
 }
 
 // controlBuffer is an unbounded channel of item.
+type asyncChan struct {
+	c       chan int
+	mu      sync.Mutex
+	backlog []int
+}
+
+func newAsyncChan() *asyncChan {
+	b := &asyncChan{
+		c: make(chan int, 100),
+	}
+	return b
+}
+
+func (b *asyncChan) put(x int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.backlog) == 0 {
+		select {
+		case b.c <- x:
+			return
+		default:
+		}
+	}
+	b.backlog = append(b.backlog, x)
+}
+
+func (b *asyncChan) load() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.backlog) > 0 {
+		select {
+		case b.c <- b.backlog[0]:
+			b.backlog = b.backlog[1:]
+		default:
+		}
+	}
+}
+
+func (b *asyncChan) get() chan int {
+	return b.c
+}
+
+
+// controlBuffer is an unbounded channel of item.
 type controlBuffer struct {
 	c       chan item
 	mu      sync.Mutex

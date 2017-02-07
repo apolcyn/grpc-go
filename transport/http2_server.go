@@ -84,6 +84,7 @@ type http2Server struct {
 	// controlBuf delivers all the control related tasks (e.g., window
 	// updates, reset streams, and various settings) to the controller.
 	controlBuf *controlBuffer
+	asyncChan *asyncChan
 	fc         *inFlow
 	// sendQuotaPool provides flow control to outbound message.
 	sendQuotaPool *quotaPool
@@ -146,6 +147,7 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		shutdownChan:    make(chan struct{}),
 		activeStreams:   make(map[uint32]*Stream),
 		streamSendQuota: defaultWindowSize,
+		asyncChan:       newAsyncChan(),
 	}
 	if stats.On() {
 		t.ctx = stats.TagConn(t.ctx, &stats.ConnTagInfo{
@@ -676,7 +678,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 				// responsibility to flush the buffered frames. It queues
 				// a flush request to controlBuf instead of flushing directly
 				// in order to avoid the race with other writing or flushing.
-				t.controlBuf.put(&flushIO{})
+				t.asyncChan.put(0)
 			}
 			return err
 		}
@@ -684,7 +686,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		case <-s.ctx.Done():
 			t.sendQuotaPool.add(ps)
 			if t.framer.adjustNumWriters(-1) == 0 {
-				t.controlBuf.put(&flushIO{})
+				t.asyncChan.put(0)
 			}
 			t.writableChan <- 0
 			return ContextErr(s.ctx.Err())
@@ -695,12 +697,12 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			forceFlush = true
 		}
 		if err := t.framer.writeData(false, s.id, false, p); err != nil {
-			t.controlBuf.put(&flushIO{})
+			t.asyncChan.put(0)
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
 		if t.framer.adjustNumWriters(-1) == 0 || forceFlush {
-			t.controlBuf.put(&flushIO{})
+			t.asyncChan.put(0)
 		}
 		t.writableChan <- 0
 	}
@@ -754,7 +756,7 @@ func (t *http2Server) controller() {
 					t.mu.Unlock()
 					t.framer.writeGoAway(true, sid, http2.ErrCodeNo, nil)
 				case *flushIO:
-					t.framer.flushWrite()
+					panic("shouldnt be using this")
 				case *ping:
 					t.framer.writePing(true, i.ack, i.data)
 				default:
@@ -764,6 +766,15 @@ func (t *http2Server) controller() {
 				continue
 			case <-t.shutdownChan:
 				return
+			}
+		case <-t.asyncChan.get():
+			t.asyncChan.load()
+			select {
+		        case <-t.writableChan:
+				if len(t.asyncChan.get()) == 0 {
+					t.framer.flushWrite()
+				}
+				t.writableChan <- 0
 			}
 		case <-t.shutdownChan:
 			return
