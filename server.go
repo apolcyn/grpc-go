@@ -634,7 +634,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 	}
 	p := &parser{r: stream}
 	for {
-		pf, req, err := p.recvMsg(s.opts.maxMsgSize)
+		pf, req, err := p.recvMsg(stream, s.opts.maxMsgSize)
 		if err == io.EOF {
 			// The entire stream is done (for unary RPC only).
 			return err

@@ -249,8 +249,13 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 	s.sendQuotaPool = newQuotaPool(int(t.streamSendQuota))
 	t.activeStreams[s.id] = s
 	t.mu.Unlock()
-	s.windowHandler = func(n int) {
+	s.streamWindowHandler = func(n uint32) {
 		t.updateWindow(s, uint32(n))
+	}
+	s.transportWindowHandler = func(n uint32) {
+	        if w := t.fc.onRead(n); w > 0 {
+			t.controlBuf.put(&windowUpdate{0, w})
+	        }
 	}
 	s.ctx = traceCtx(s.ctx, s.method)
 	if t.stats != nil {
@@ -371,9 +376,6 @@ func (t *http2Server) updateWindow(s *Stream, n uint32) {
 	defer s.mu.Unlock()
 	if s.state == streamDone {
 		return
-	}
-	if w := t.fc.onRead(n); w > 0 {
-		t.controlBuf.put(&windowUpdate{0, w})
 	}
 	if w := s.fc.onRead(n); w > 0 {
 		t.controlBuf.put(&windowUpdate{s.id, w})
@@ -814,7 +816,7 @@ func (t *http2Server) closeStream(s *Stream) {
 	s.cancel()
 	s.mu.Lock()
 	if q := s.fc.resetPendingData(); q > 0 {
-		if w := t.fc.onRead(q); w > 0 {
+		if w := t.fc.onRead(uint32(q)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 		}
 	}

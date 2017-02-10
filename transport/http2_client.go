@@ -274,8 +274,13 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 		headerChan:    make(chan struct{}),
 	}
 	t.nextID += 2
-	s.windowHandler = func(n int) {
+	s.streamWindowHandler = func(n uint32) {
 		t.updateWindow(s, uint32(n))
+	}
+	s.transportWindowHandler = func(n uint32) {
+	        if w := t.fc.onRead(n); w > 0 {
+			t.controlBuf.put(&windowUpdate{0, w})
+	        }
 	}
 	// The client side stream context should have exactly the same life cycle with the user provided context.
 	// That means, s.ctx should be read-only. And s.ctx is done iff ctx is done.
@@ -513,7 +518,7 @@ func (t *http2Client) CloseStream(s *Stream, err error) {
 	}
 	s.mu.Lock()
 	if q := s.fc.resetPendingData(); q > 0 {
-		if n := t.fc.onRead(q); n > 0 {
+		if n := t.fc.onRead(uint32(q)); n > 0 {
 			t.controlBuf.put(&windowUpdate{0, n})
 		}
 	}
@@ -732,9 +737,6 @@ func (t *http2Client) updateWindow(s *Stream, n uint32) {
 	defer s.mu.Unlock()
 	if s.state == streamDone {
 		return
-	}
-	if w := t.fc.onRead(n); w > 0 {
-		t.controlBuf.put(&windowUpdate{0, w})
 	}
 	if w := s.fc.onRead(n); w > 0 {
 		t.controlBuf.put(&windowUpdate{s.id, w})

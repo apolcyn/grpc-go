@@ -149,18 +149,18 @@ type inFlow struct {
 	mu sync.Mutex
 	// pendingData is the overall data which have been received but not been
 	// consumed by applications.
-	pendingData uint32
+	pendingData int64
 	// The amount of data the application has consumed but grpc has not sent
 	// window update for them. Used to reduce window update frequency.
-	pendingUpdate uint32
+	pendingUpdate int64
 }
 
 // onData is invoked when some data frame is received. It updates pendingData.
 func (f *inFlow) onData(n uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pendingData += n
-	if f.pendingData+f.pendingUpdate > f.limit {
+	f.pendingData += int64(n)
+	if uint32(f.pendingData+f.pendingUpdate) > f.limit {
 		return fmt.Errorf("received %d-bytes data exceeding the limit %d bytes", f.pendingData+f.pendingUpdate, f.limit)
 	}
 	return nil
@@ -174,17 +174,17 @@ func (f *inFlow) onRead(n uint32) uint32 {
 	if f.pendingData == 0 {
 		return 0
 	}
-	f.pendingData -= n
-	f.pendingUpdate += n
-	if f.pendingUpdate >= f.limit/4 {
+	f.pendingData -= int64(n)
+	f.pendingUpdate += int64(n)
+	if f.pendingUpdate >= int64(f.limit)/4 {
 		wu := f.pendingUpdate
 		f.pendingUpdate = 0
-		return wu
+		return uint32(wu)
 	}
 	return 0
 }
 
-func (f *inFlow) resetPendingData() uint32 {
+func (f *inFlow) resetPendingData() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n := f.pendingData

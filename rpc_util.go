@@ -239,7 +239,7 @@ type parser struct {
 // No other error values or types must be returned, which also means
 // that the underlying io.Reader must not return an incompatible
 // error.
-func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
+func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
 	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
 		return 0, nil, err
 	}
@@ -253,6 +253,9 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 	if length > uint32(maxMsgSize) {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
+	//TODO: apolcyn handdle edge case where this overflows
+	s.ReadStreamFlowControl(int(length + 5))
+
 	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
 	// of making it for each message:
 	msg = make([]byte, int(length))
@@ -336,7 +339,7 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 }
 
 func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int, inPayload *stats.InPayload) error {
-	pf, d, err := p.recvMsg(maxMsgSize)
+	pf, d, err := p.recvMsg(s, maxMsgSize)
 	if err != nil {
 		return err
 	}
