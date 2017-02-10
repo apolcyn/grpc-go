@@ -247,15 +247,17 @@ func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat,
 	pf = payloadFormat(p.header[0])
 	length := binary.BigEndian.Uint32(p.header[1:])
 
+	//TODO: apolcyn handle edge case where this overflows
+	//TODO: apolcyn also add test case flow control update on zero length message
+	s.ReadStreamFlowControl(int(length + 5))
+
+
 	if length == 0 {
 		return pf, nil, nil
 	}
 	if length > uint32(maxMsgSize) {
 		return 0, nil, Errorf(codes.Internal, "grpc: received message length %d exceeding the max size %d", length, maxMsgSize)
 	}
-	//TODO: apolcyn handdle edge case where this overflows
-	s.ReadStreamFlowControl(int(length + 5))
-
 	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
 	// of making it for each message:
 	msg = make([]byte, int(length))
