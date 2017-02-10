@@ -249,10 +249,10 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 	s.sendQuotaPool = newQuotaPool(int(t.streamSendQuota))
 	t.activeStreams[s.id] = s
 	t.mu.Unlock()
-	s.streamWindowHandler = func(n uint32) {
-		t.updateWindow(s, uint32(n))
+	s.streamWindowHandler = func(n int64) {
+		t.updateWindow(s, n)
 	}
-	s.transportWindowHandler = func(n uint32) {
+	s.transportWindowHandler = func(n int64) {
 	        if w := t.fc.onRead(n); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 	        }
@@ -371,7 +371,7 @@ func (t *http2Server) getStream(f http2.Frame) (*Stream, bool) {
 // updateWindow adjusts the inbound quota for the stream and the transport.
 // Window updates will deliver to the controller for sending when
 // the cumulative quota exceeds the corresponding threshold.
-func (t *http2Server) updateWindow(s *Stream, n uint32) {
+func (t *http2Server) updateWindow(s *Stream, n int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state == streamDone {
@@ -384,7 +384,7 @@ func (t *http2Server) updateWindow(s *Stream, n uint32) {
 
 func (t *http2Server) handleData(f *http2.DataFrame) {
 	size := len(f.Data())
-	if err := t.fc.onData(uint32(size)); err != nil {
+	if err := t.fc.onData(int64(size)); err != nil {
 		grpclog.Printf("transport: http2Server %v", err)
 		t.Close()
 		return
@@ -392,7 +392,7 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 	// Select the right stream to dispatch.
 	s, ok := t.getStream(f)
 	if !ok {
-		if w := t.fc.onRead(uint32(size)); w > 0 {
+		if w := t.fc.onRead(int64(size)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 		}
 		return
@@ -402,12 +402,12 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 		if s.state == streamDone {
 			s.mu.Unlock()
 			// The stream has been closed. Release the corresponding quota.
-			if w := t.fc.onRead(uint32(size)); w > 0 {
+			if w := t.fc.onRead(int64(size)); w > 0 {
 				t.controlBuf.put(&windowUpdate{0, w})
 			}
 			return
 		}
-		if err := s.fc.onData(uint32(size)); err != nil {
+		if err := s.fc.onData(int64(size)); err != nil {
 			s.mu.Unlock()
 			t.closeStream(s)
 			t.controlBuf.put(&resetStream{s.id, http2.ErrCodeFlowControl})
@@ -816,7 +816,7 @@ func (t *http2Server) closeStream(s *Stream) {
 	s.cancel()
 	s.mu.Lock()
 	if q := s.fc.resetPendingData(); q > 0 {
-		if w := t.fc.onRead(uint32(q)); w > 0 {
+		if w := t.fc.onRead(q); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 		}
 	}

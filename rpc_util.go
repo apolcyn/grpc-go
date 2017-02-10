@@ -240,6 +240,7 @@ type parser struct {
 // that the underlying io.Reader must not return an incompatible
 // error.
 func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
+	s.ReadStreamFlowControl(int64(len(p.header)))
 	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
 		return 0, nil, err
 	}
@@ -247,9 +248,8 @@ func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat,
 	pf = payloadFormat(p.header[0])
 	length := binary.BigEndian.Uint32(p.header[1:])
 
-	//TODO: apolcyn handle edge case where this overflows
 	//TODO: apolcyn also add test case flow control update on zero length message
-	s.ReadStreamFlowControl(int(length + 5))
+	s.ReadStreamFlowControl(int64(length))
 
 
 	if length == 0 {

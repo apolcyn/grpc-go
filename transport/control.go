@@ -156,10 +156,10 @@ type inFlow struct {
 }
 
 // onData is invoked when some data frame is received. It updates pendingData.
-func (f *inFlow) onData(n uint32) error {
+func (f *inFlow) onData(n int64) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.pendingData += int64(n)
+	f.pendingData += n
 	if f.pendingData+f.pendingUpdate > int64(f.limit) {
 		return fmt.Errorf("received %d-bytes data exceeding the limit %d bytes", f.pendingData+f.pendingUpdate, f.limit)
 	}
@@ -168,7 +168,7 @@ func (f *inFlow) onData(n uint32) error {
 
 // onRead is invoked when the application reads the data. It returns the window size
 // to be sent to the peer.
-func (f *inFlow) onRead(n uint32) uint32 {
+func (f *inFlow) onRead(n int64) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.pendingData == 0 {
@@ -184,7 +184,7 @@ func (f *inFlow) onRead(n uint32) uint32 {
 	return 0
 }
 
-func (f *inFlow) resetPendingData() uint32 {
+func (f *inFlow) resetPendingData() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n := f.pendingData

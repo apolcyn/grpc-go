@@ -274,10 +274,10 @@ func (t *http2Client) newStream(ctx context.Context, callHdr *CallHdr) *Stream {
 		headerChan:    make(chan struct{}),
 	}
 	t.nextID += 2
-	s.streamWindowHandler = func(n uint32) {
-		t.updateWindow(s, uint32(n))
+	s.streamWindowHandler = func(n int64) {
+		t.updateWindow(s, n)
 	}
-	s.transportWindowHandler = func(n uint32) {
+	s.transportWindowHandler = func(n int64) {
 	        if w := t.fc.onRead(n); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 	        }
@@ -518,7 +518,7 @@ func (t *http2Client) CloseStream(s *Stream, err error) {
 	}
 	s.mu.Lock()
 	if q := s.fc.resetPendingData(); q > 0 {
-		if n := t.fc.onRead(uint32(q)); n > 0 {
+		if n := t.fc.onRead(q); n > 0 {
 			t.controlBuf.put(&windowUpdate{0, n})
 		}
 	}
@@ -732,7 +732,7 @@ func (t *http2Client) getStream(f http2.Frame) (*Stream, bool) {
 // updateWindow adjusts the inbound quota for the stream and the transport.
 // Window updates will deliver to the controller for sending when
 // the cumulative quota exceeds the corresponding threshold.
-func (t *http2Client) updateWindow(s *Stream, n uint32) {
+func (t *http2Client) updateWindow(s *Stream, n int64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.state == streamDone {
@@ -745,14 +745,14 @@ func (t *http2Client) updateWindow(s *Stream, n uint32) {
 
 func (t *http2Client) handleData(f *http2.DataFrame) {
 	size := len(f.Data())
-	if err := t.fc.onData(uint32(size)); err != nil {
+	if err := t.fc.onData(int64(size)); err != nil {
 		t.notifyError(connectionErrorf(true, err, "%v", err))
 		return
 	}
 	// Select the right stream to dispatch.
 	s, ok := t.getStream(f)
 	if !ok {
-		if w := t.fc.onRead(uint32(size)); w > 0 {
+		if w := t.fc.onRead(int64(size)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
 		}
 		return
@@ -762,12 +762,12 @@ func (t *http2Client) handleData(f *http2.DataFrame) {
 		if s.state == streamDone {
 			s.mu.Unlock()
 			// The stream has been closed. Release the corresponding quota.
-			if w := t.fc.onRead(uint32(size)); w > 0 {
+			if w := t.fc.onRead(int64(size)); w > 0 {
 				t.controlBuf.put(&windowUpdate{0, w})
 			}
 			return
 		}
-		if err := s.fc.onData(uint32(size)); err != nil {
+		if err := s.fc.onData(int64(size)); err != nil {
 			s.state = streamDone
 			s.statusCode = codes.Internal
 			s.statusDesc = err.Error()

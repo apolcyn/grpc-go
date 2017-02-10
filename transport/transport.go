@@ -193,8 +193,8 @@ type Stream struct {
 	updateQuota uint32
 	// The handler to control the window update procedure for both this
 	// particular stream and the associated transport.
-	streamWindowHandler func(uint32)
-	transportWindowHandler func(uint32)
+	streamWindowHandler func(int64)
+	transportWindowHandler func(int64)
 
 	sendQuotaPool *quotaPool
 	// Close headerChan to indicate the end of reception of header metadata.
@@ -216,8 +216,8 @@ type Stream struct {
 	statusDesc string
 }
 
-func (s *Stream) ReadStreamFlowControl(amount int) {
-	s.streamWindowHandler(uint32(amount))
+func (s *Stream) ReadStreamFlowControl(n int64) {
+	s.streamWindowHandler(n)
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -332,7 +332,7 @@ func (s *Stream) Read(p []byte) (n int, err error) {
 	if err != nil {
 		return
 	}
-	s.transportWindowHandler(uint32(n))
+	s.transportWindowHandler(int64(n))
 	return
 }
 
