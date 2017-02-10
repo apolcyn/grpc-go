@@ -160,7 +160,7 @@ func (f *inFlow) onData(n uint32) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pendingData += int64(n)
-	if uint32(f.pendingData+f.pendingUpdate) > f.limit {
+	if f.pendingData+f.pendingUpdate > int64(f.limit) {
 		return fmt.Errorf("received %d-bytes data exceeding the limit %d bytes", f.pendingData+f.pendingUpdate, f.limit)
 	}
 	return nil
