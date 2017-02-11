@@ -211,9 +211,16 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 		s.ctx = metadata.NewContext(s.ctx, state.mdata)
 	}
 
-	s.dec = &recvBufferReader{
-		ctx:  s.ctx,
-		recv: s.buf,
+	s.sr = streamReader{
+		dec: &recvBufferReader{
+			ctx:    s.ctx,
+			recv:   s.buf,
+		},
+		transportWindowHandler: func(n int64) {
+	                if w := t.fc.onRead(n); w > 0 {
+				t.controlBuf.put(&windowUpdate{0, w})
+	                }
+		},
 	}
 	s.recvCompress = state.encoding
 	s.method = state.method
@@ -251,11 +258,6 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 	t.mu.Unlock()
 	s.streamWindowHandler = func(n int64) {
 		t.updateWindow(s, n)
-	}
-	s.transportWindowHandler = func(n int64) {
-	        if w := t.fc.onRead(n); w > 0 {
-			t.controlBuf.put(&windowUpdate{0, w})
-	        }
 	}
 	s.ctx = traceCtx(s.ctx, s.method)
 	if t.stats != nil {

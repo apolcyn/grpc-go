@@ -302,7 +302,9 @@ func (ht *serverHandlerTransport) HandleStreams(startStream func(*Stream), trace
 	s := &Stream{
 		id:            0,            // irrelevant
 		streamWindowHandler: func(int64) {},
-		transportWindowHandler: func(int64) {},
+		sr: streamReader{
+			transportWindowHandler: func(int64) {},
+		},
 		cancel:        cancel,
 		buf:           newRecvBuffer(),
 		st:            ht,

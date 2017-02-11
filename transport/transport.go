@@ -194,7 +194,7 @@ type Stream struct {
 	// The handler to control the window update procedure for both this
 	// particular stream and the associated transport.
 	streamWindowHandler func(int64)
-	transportWindowHandler func(int64)
+	sr streamReader
 
 	sendQuotaPool *quotaPool
 	// Close headerChan to indicate the end of reception of header metadata.
@@ -215,6 +215,28 @@ type Stream struct {
 	statusCode codes.Code
 	statusDesc string
 }
+
+func ReadGrpcMsg() {
+}
+
+type streamReader struct {
+	dec io.Reader
+	transportWindowHandler func(int64)
+}
+
+// Read reads all the data available for this Stream from the transport and
+// passes them into the decoder, which converts them into a gRPC message stream.
+// The error is io.EOF when the stream is done or another non-nil error if
+// the stream broke.
+func (s streamReader) Read(p []byte) (n int, err error) {
+	n, err = s.dec.Read(p)
+	if err != nil {
+		return
+	}
+	s.transportWindowHandler(int64(n))
+	return
+}
+
 
 func (s *Stream) ReadStreamFlowControl(n int64) {
 	s.streamWindowHandler(n)
@@ -321,19 +343,6 @@ func (s *Stream) SetTrailer(md metadata.MD) error {
 
 func (s *Stream) write(m recvMsg) {
 	s.buf.put(&m)
-}
-
-// Read reads all the data available for this Stream from the transport and
-// passes them into the decoder, which converts them into a gRPC message stream.
-// The error is io.EOF when the stream is done or another non-nil error if
-// the stream broke.
-func (s *Stream) Read(p []byte) (n int, err error) {
-	n, err = s.dec.Read(p)
-	if err != nil {
-		return
-	}
-	s.transportWindowHandler(int64(n))
-	return
 }
 
 // The key to save transport.Stream in the context.
