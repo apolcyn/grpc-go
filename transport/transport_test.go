@@ -856,7 +856,7 @@ func TestClientWithMisbehavedServer(t *testing.T) {
 	// Read without window update.
 	for {
 		p := make([]byte, http2MaxFrameLen)
-		if _, err = s.sr.Read(p); err != nil {
+		if _, err = s.sr.dec.Read(p); err != nil {
 			break
 		}
 	}
@@ -913,7 +913,7 @@ func TestEncodingRequiredStatus(t *testing.T) {
 		t.Fatalf("Failed to write the request: %v", err)
 	}
 	p := make([]byte, http2MaxFrameLen)
-	if _, err := s.sr.Read(p); err != io.EOF {
+	if _, err := s.sr.dec.Read(p); err != io.EOF {
 		t.Fatalf("Read got error %v, want %v", err, io.EOF)
 	}
 	if s.StatusCode() != encodingTestStatusCode || s.StatusDesc() != encodingTestStatusDesc {
@@ -941,7 +941,7 @@ func TestInvalidHeaderField(t *testing.T) {
 		t.Fatalf("Failed to write the request: %v", err)
 	}
 	p := make([]byte, http2MaxFrameLen)
-	_, err = s.sr.Read(p)
+	_, err = s.sr.dec.Read(p)
 	if se, ok := err.(StreamError); !ok || se.Code != codes.FailedPrecondition || !strings.Contains(err.Error(), expectedInvalidHeaderField) {
 		t.Fatalf("Read got error %v, want error with code %s and contains %q", err, codes.FailedPrecondition, expectedInvalidHeaderField)
 	}
