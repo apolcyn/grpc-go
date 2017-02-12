@@ -89,7 +89,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
 		resp = expectedResponseLarge
 	}
 	p := make([]byte, len(req))
-	_, err := io.ReadFull(s, p)
+	_, err := s.ReadFull(p)
 	if err != nil {
 		return
 	}
@@ -297,11 +297,11 @@ func TestClientSendAndReceive(t *testing.T) {
 		t.Fatalf("failed to send data: %v", err)
 	}
 	p := make([]byte, len(expectedResponse))
-	_, recvErr := io.ReadFull(s1, p)
+	_, recvErr := s1.ReadFull(p)
 	if recvErr != nil || !bytes.Equal(p, expectedResponse) {
 		t.Fatalf("Error: %v, want <nil>; Result: %v, want %v", recvErr, p, expectedResponse)
 	}
-	_, recvErr = io.ReadFull(s1, p)
+	_, recvErr = s1.ReadFull(p)
 	if recvErr != io.EOF {
 		t.Fatalf("Error: %v; want <EOF>", recvErr)
 	}
@@ -337,9 +337,9 @@ func performOneRPC(ct ClientTransport) {
 		//
 		// Read response
 		p := make([]byte, len(expectedResponse))
-		io.ReadFull(s, p)
+		s.ReadFull(p)
 		// Read io.EOF
-		io.ReadFull(s, p)
+		s.ReadFull(p)
 	}
 }
 
@@ -378,10 +378,10 @@ func TestLargeMessage(t *testing.T) {
 				t.Errorf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
 			}
 			p := make([]byte, len(expectedResponseLarge))
-			if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
-				t.Errorf("io.ReadFull(_, %v) = _, %v, want %v, <nil>", err, p, expectedResponse)
+			if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+				t.Errorf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 			}
-			if _, err = io.ReadFull(s, p); err != io.EOF {
+			if _, err = s.ReadFull(p); err != io.EOF {
 				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
 			}
 		}()
@@ -424,10 +424,10 @@ func TestGracefulClose(t *testing.T) {
 		t.Fatalf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
 	}
 	p := make([]byte, len(expectedResponse))
-	if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponse) {
-		t.Fatalf("io.ReadFull(_, %v) = _, %v, want %v, <nil>", err, p, expectedResponse)
+	if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponse) {
+		t.Fatalf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 	}
-	if _, err = io.ReadFull(s, p); err != io.EOF {
+	if _, err = s.ReadFull(p); err != io.EOF {
 		t.Fatalf("Failed to complete the stream %v; want <EOF>", err)
 	}
 	wg.Wait()
@@ -672,7 +672,7 @@ func TestServerWithMisbehavedClient(t *testing.T) {
 	}
 	// Server sent a resetStream for s already.
 	code := http2ErrConvTab[http2.ErrCodeFlowControl]
-	if _, err := io.ReadFull(s, make([]byte, 1)); err != io.EOF || s.statusCode != code {
+	if _, err := s.ReadFull(make([]byte, 1)); err != io.EOF || s.statusCode != code {
 		t.Fatalf("%v got err %v with statusCode %d, want err <EOF> with statusCode %d", s, err, s.statusCode, code)
 	}
 
