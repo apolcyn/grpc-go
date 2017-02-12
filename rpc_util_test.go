@@ -47,6 +47,20 @@ import (
 	"google.golang.org/grpc/transport"
 )
 
+type streamReaderForTesting struct {
+	r io.Reader
+}
+
+func newStreamReaderForTesting(d []byte) *streamReaderForTesting {
+	return &streamReaderForTesting{
+		r: bytes.NewReader(d),
+	}
+}
+
+func (s *streamReaderForTesting) ReadFull(p []byte) (n int, err error) {
+	return io.ReadFull(s.r, p)
+}
+
 func TestSimpleParsing(t *testing.T) {
 	bigMsg := bytes.Repeat([]byte{'x'}, 1<<24)
 	for _, test := range []struct {
@@ -65,8 +79,8 @@ func TestSimpleParsing(t *testing.T) {
 		// Check that messages with length >= 2^24 are parsed.
 		{append([]byte{0, 1, 0, 0, 0}, bigMsg...), nil, bigMsg, compressionNone},
 	} {
-		buf := bytes.NewReader(test.p)
-		parser := &parser{r: buf}
+		buf := newStreamReaderForTesting(test.p)
+		parser := &parser{sr: buf}
 		pt, b, err := parser.recvMsg(math.MaxInt32)
 		if err != test.err || !bytes.Equal(b, test.b) || pt != test.pt {
 			t.Fatalf("parser{%v}.recvMsg(_) = %v, %v, %v\nwant %v, %v, %v", test.p, pt, b, err, test.pt, test.b, test.err)
@@ -77,8 +91,8 @@ func TestSimpleParsing(t *testing.T) {
 func TestMultipleParsing(t *testing.T) {
 	// Set a byte stream consists of 3 messages with their headers.
 	p := []byte{0, 0, 0, 0, 1, 'a', 0, 0, 0, 0, 2, 'b', 'c', 0, 0, 0, 0, 1, 'd'}
-	b := bytes.NewReader(p)
-	parser := &parser{r: b}
+	sr := newStreamReaderForTesting(p)
+	parser := &parser{sr: sr}
 
 	wantRecvs := []struct {
 		pt   payloadFormat

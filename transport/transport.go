@@ -194,7 +194,7 @@ type Stream struct {
 	// The handler to control the window update procedure for both this
 	// particular stream and the associated transport.
 	streamWindowHandler func(int64)
-	sr streamReader
+	sr                  streamReader
 
 	sendQuotaPool *quotaPool
 	// Close headerChan to indicate the end of reception of header metadata.
@@ -216,11 +216,22 @@ type Stream struct {
 	statusDesc string
 }
 
-func ReadGrpcMsg() {
+type TransportStreamReader interface {
+	// Read exactly len(p) bytes from this stream into
+	// p, blocking if necessary.
+	// A non-nil error returned by this function
+	// indicates an error in the underlying stream.
+	// Also note: err != nil iff n == len(p)
+	ReadFull(p []byte) (n int, err error)
+}
+
+func (s *Stream) ReadFull(p []byte) (n int, err error) {
+	s.streamWindowHandler(int64(len(p)))
+	return io.ReadFull(s.sr, p)
 }
 
 type streamReader struct {
-	dec io.Reader
+	dec                    io.Reader
 	transportWindowHandler func(int64)
 }
 
@@ -236,7 +247,6 @@ func (s streamReader) Read(p []byte) (n int, err error) {
 	s.transportWindowHandler(int64(n))
 	return
 }
-
 
 func (s *Stream) ReadStreamFlowControl(n int64) {
 	s.streamWindowHandler(n)

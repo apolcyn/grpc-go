@@ -65,7 +65,7 @@ func recvResponse(ctx context.Context, dopts dialOptions, t transport.ClientTran
 	if err != nil {
 		return
 	}
-	p := &parser{r: stream}
+	p := &parser{sr: stream}
 	var inPayload *stats.InPayload
 	if dopts.copts.StatsHandler != nil {
 		inPayload = &stats.InPayload{

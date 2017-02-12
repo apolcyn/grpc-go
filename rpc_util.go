@@ -219,7 +219,7 @@ type parser struct {
 	// r is the underlying reader.
 	// See the comment on recvMsg for the permissible
 	// error types.
-	r io.Reader
+	sr transport.TransportStreamReader
 
 	// The header of a gRPC message. Find more detail
 	// at http://www.grpc.io/docs/guides/wire.html.
@@ -239,18 +239,13 @@ type parser struct {
 // No other error values or types must be returned, which also means
 // that the underlying io.Reader must not return an incompatible
 // error.
-func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
-	s.ReadStreamFlowControl(int64(len(p.header)))
-	if _, err := io.ReadFull(p.r, p.header[:]); err != nil {
+func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err error) {
+	if _, err := p.sr.ReadFull(p.header[:]); err != nil {
 		return 0, nil, err
 	}
 
 	pf = payloadFormat(p.header[0])
 	length := binary.BigEndian.Uint32(p.header[1:])
-
-	//TODO: apolcyn also add test case flow control update on zero length message
-	s.ReadStreamFlowControl(int64(length))
-
 
 	if length == 0 {
 		return pf, nil, nil
@@ -261,7 +256,7 @@ func (p *parser) recvMsg(s *transport.Stream, maxMsgSize int) (pf payloadFormat,
 	// TODO(bradfitz,zhaoq): garbage. reuse buffer after proto decoding instead
 	// of making it for each message:
 	msg = make([]byte, int(length))
-	if _, err := io.ReadFull(p.r, msg); err != nil {
+	if _, err := p.sr.ReadFull(msg); err != nil {
 		if err == io.EOF {
 			err = io.ErrUnexpectedEOF
 		}
@@ -341,7 +336,7 @@ func checkRecvPayload(pf payloadFormat, recvCompress string, dc Decompressor) er
 }
 
 func recv(p *parser, c Codec, s *transport.Stream, dc Decompressor, m interface{}, maxMsgSize int, inPayload *stats.InPayload) error {
-	pf, d, err := p.recvMsg(s, maxMsgSize)
+	pf, d, err := p.recvMsg(maxMsgSize)
 	if err != nil {
 		return err
 	}

@@ -213,13 +213,13 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 
 	s.sr = streamReader{
 		dec: &recvBufferReader{
-			ctx:    s.ctx,
-			recv:   s.buf,
+			ctx:  s.ctx,
+			recv: s.buf,
 		},
 		transportWindowHandler: func(n int64) {
-	                if w := t.fc.onRead(n); w > 0 {
+			if w := t.fc.onRead(n); w > 0 {
 				t.controlBuf.put(&windowUpdate{0, w})
-	                }
+			}
 		},
 	}
 	s.recvCompress = state.encoding

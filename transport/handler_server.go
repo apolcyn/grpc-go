@@ -300,16 +300,16 @@ func (ht *serverHandlerTransport) HandleStreams(startStream func(*Stream), trace
 	req := ht.req
 
 	s := &Stream{
-		id:            0,            // irrelevant
+		id:                  0, // irrelevant
 		streamWindowHandler: func(int64) {},
 		sr: streamReader{
 			transportWindowHandler: func(int64) {},
 		},
-		cancel:        cancel,
-		buf:           newRecvBuffer(),
-		st:            ht,
-		method:        req.URL.Path,
-		recvCompress:  req.Header.Get("grpc-encoding"),
+		cancel:       cancel,
+		buf:          newRecvBuffer(),
+		st:           ht,
+		method:       req.URL.Path,
+		recvCompress: req.Header.Get("grpc-encoding"),
 	}
 	pr := &peer.Peer{
 		Addr: ht.RemoteAddr(),
