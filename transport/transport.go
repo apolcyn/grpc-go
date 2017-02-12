@@ -186,7 +186,6 @@ type Stream struct {
 	recvCompress string
 	sendCompress string
 	buf          *recvBuffer
-	dec          io.Reader
 	fc           *inFlow
 	recvQuota    uint32
 	// The accumulated inbound quota pending for window update.
