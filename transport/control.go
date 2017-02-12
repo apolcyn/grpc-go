@@ -171,9 +171,6 @@ func (f *inFlow) onData(n int64) error {
 func (f *inFlow) onRead(n int64) uint32 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.pendingData == 0 {
-		return 0
-	}
 	f.pendingData -= int64(n)
 	f.pendingUpdate += int64(n)
 	if f.pendingUpdate >= int64(f.limit)/4 {

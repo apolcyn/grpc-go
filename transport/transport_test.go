@@ -381,6 +381,7 @@ func TestLargeMessage(t *testing.T) {
 			if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
 				t.Errorf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 			}
+			panic("here we are")
 			if _, err = s.ReadFull(p); err != io.EOF {
 				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
 			}
