@@ -982,7 +982,9 @@ func TestIsReservedHeader(t *testing.T) {
 	}
 }
 
-func TestRepeatedReadFullReturnSameErrAfterAnyErrorOccurs(t *testing.T) {
+// If any error occurs on a call to Stream.ReadFull, future calls
+// should continue to return that same error.
+func TestReadFullGivesSameErrorAfterAnyErrorOccurs(t *testing.T) {
 	testRecvBuffer := newRecvBuffer()
 	s := &Stream{
 		sr: streamReader{
@@ -1022,6 +1024,57 @@ func TestRepeatedReadFullReturnSameErrAfterAnyErrorOccurs(t *testing.T) {
 		}
 		if actualErr.Error() != testErr.Error() {
 			t.Error("_ , actualErr := s.ReadFull(_) differs; want actualErr.Error() to be %v; got %v", testErr.Error(), actualErr.Error())
+		}
+	}
+}
+
+// Streams that are in error states should skip flow control updates.
+// Transport flow control should never be read from in case a stream read results in an error.
+func TestReadFullDoesntUpdateFlowControlAfterErrorOccurs(t *testing.T) {
+	streamWindowHandlerCounter := 0
+	testStreamWindowHandler := func(int64) {
+		streamWindowHandlerCounter++
+	}
+
+	transportWindowHandlerCounter := 0
+	testTransportWindowHandler := func(int64) {
+		transportWindowHandlerCounter++
+	}
+
+	testRecvBuffer := newRecvBuffer()
+	s := &Stream{
+		sr: streamReader{
+			transportWindowHandler: testTransportWindowHandler,
+			dec: &recvBufferReader{
+				ctx:    context.Background(),
+				goAway: make(chan struct{}),
+				recv:   testRecvBuffer,
+			},
+		},
+		streamWindowHandler: testStreamWindowHandler,
+		buf: testRecvBuffer,
+	}
+
+	testData := make([]byte, 1)
+	testData[0] = 5
+	testErr := errors.New("test error")
+	s.write(recvMsg{data: testData, err: testErr})
+
+	_, _ = s.ReadFull(make([]byte, 1))
+	if transportWindowHandlerCounter != 0 {
+		t.Error("transport.sr.transportWindowHandler called more times than expected; want %v; got %v", 0, transportWindowHandlerCounter)
+	}
+
+	s.write(recvMsg{data: testData, err: nil})
+	s.write(recvMsg{data: testData, err: errors.New("different error from first")})
+
+	for i := 0; i < 2; i++ {
+		_, _ = s.ReadFull(make([]byte, 1))
+		if streamWindowHandlerCounter != 1 {
+			t.Error("transport.streamWindowHandler called more times than expected; want %v; got %v", 1, streamWindowHandlerCounter)
+		}
+		if transportWindowHandlerCounter != 0 {
+			t.Error("transport.sr.transportWindowHandler called more times than expected; want %v; got %v", 0, transportWindowHandlerCounter)
 		}
 	}
 }
