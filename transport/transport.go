@@ -193,6 +193,7 @@ type Stream struct {
 	// The handler to control the window update procedure for both this
 	// particular stream and the associated transport.
 	streamWindowHandler func(int64)
+	readFullErr         error
 	sr                  streamReader
 
 	sendQuotaPool *quotaPool
@@ -225,6 +226,10 @@ type TransportStreamReader interface {
 }
 
 func (s *Stream) ReadFull(p []byte) (n int, err error) {
+	if s.readFullErr != nil {
+		return 0, s.readFullErr
+	}
+	defer func() { s.readFullErr = err }()
 	s.streamWindowHandler(int64(len(p)))
 	return io.ReadFull(s.sr, p)
 }

@@ -44,6 +44,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"errors"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -977,6 +978,50 @@ func TestIsReservedHeader(t *testing.T) {
 		got := isReservedHeader(tt.h)
 		if got != tt.want {
 			t.Errorf("isReservedHeader(%q) = %v; want %v", tt.h, got, tt.want)
+		}
+	}
+}
+
+func TestRepeatedReadFullReturnSameErrAfterAnyErrorOccurs(t *testing.T) {
+	testRecvBuffer := newRecvBuffer()
+	s := &Stream{
+		sr: streamReader{
+			transportWindowHandler: func(int64) {},
+			dec: &recvBufferReader{
+				ctx:    context.Background(),
+				goAway: make(chan struct{}),
+				recv:   testRecvBuffer,
+			},
+		},
+		streamWindowHandler: func(int64) {},
+		buf: testRecvBuffer,
+	}
+
+	testData := make([]byte, 1)
+	testData[0] = 5
+	testErr := errors.New("test error")
+	s.write(recvMsg{data: testData, err: testErr})
+
+	inBuf := make([]byte, 1)
+	actualCount, actualErr := s.ReadFull(inBuf)
+	if actualCount != 0 {
+		t.Error("actualCount, _ := s.ReadFull(_) differs; want %v; got %v", 0, actualCount)
+	}
+	if actualErr.Error() != testErr.Error() {
+		t.Error("_ , actualErr := s.ReadFull(_) differs; want actualErr.Error() to be %v; got %v", testErr.Error(), actualErr.Error())
+	}
+
+	s.write(recvMsg{data: testData, err: nil})
+	s.write(recvMsg{data: testData, err: errors.New("different error from first")})
+
+	for i := 0; i < 2; i++ {
+		inBuf := make([]byte, 1)
+		actualCount, actualErr := s.ReadFull(inBuf)
+		if actualCount != 0 {
+			t.Error("actualCount, _ := s.ReadFull(_) differs; want %v; got %v", 0, actualCount)
+		}
+		if actualErr.Error() != testErr.Error() {
+			t.Error("_ , actualErr := s.ReadFull(_) differs; want actualErr.Error() to be %v; got %v", testErr.Error(), actualErr.Error())
 		}
 	}
 }
