@@ -620,18 +620,29 @@ func (t *http2Client) GracefulClose() error {
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
 // if it improves the performance.
 func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
+	sq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, s.sendQuotaPool.acquire())
+	tq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, t.sendQuotaPool.acquire())
+	padLen := 1 << 13
+	if (padLen) < sq {
+		// Overbooked stream quota. Return it back.
+		s.sendQuotaPool.add(sq - padLen)
+	}
+	if (padLen) < tq {
+		// Overbooked transport quota. Return it back.
+		t.sendQuotaPool.add(tq - padLen)
+	}
 	r := bytes.NewBuffer(data)
 	for {
 		var p []byte
 		if r.Len() > 0 {
 			size := http2MaxFrameLen
 			// Wait until the stream has some quota to send the data.
-			sq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, s.sendQuotaPool.acquire())
+			sq, err = wait(s.ctx, s.done, s.goAway, t.shutdownChan, s.sendQuotaPool.acquire())
 			if err != nil {
 				return err
 			}
 			// Wait until the transport has some quota to send the data.
-			tq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, t.sendQuotaPool.acquire())
+			tq, err = wait(s.ctx, s.done, s.goAway, t.shutdownChan, t.sendQuotaPool.acquire())
 			if err != nil {
 				return err
 			}
@@ -694,7 +705,7 @@ func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 		// If WriteData fails, all the pending streams will be handled
 		// by http2Client.Close(). No explicit CloseStream() needs to be
 		// invoked.
-		if err := t.framer.writeData(forceFlush, s.id, endStream, p); err != nil {
+		if err := t.framer.writeDataPadded(forceFlush, s.id, endStream, p); err != nil {
 			t.notifyError(err)
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
