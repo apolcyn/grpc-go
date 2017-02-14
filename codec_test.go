@@ -35,7 +35,6 @@ package grpc
 
 import (
 	"bytes"
-	"fmt"
 	"sync"
 	"testing"
 
@@ -144,8 +143,7 @@ func TestStaggeredMarshalAndUnmarshalUsingSamePool(t *testing.T) {
 	}
 }
 
-func setupBenchmarkProtoCodecInputs(b *testing.B) [][]byte {
-	codec := protoCodec{}
+func setupBenchmarkProtoCodecInputs(b *testing.B) []proto.Message {
 	// small, arbitrary byte slices
 	protoBodies := [][]byte{
 		[]byte("one"),
@@ -155,42 +153,50 @@ func setupBenchmarkProtoCodecInputs(b *testing.B) [][]byte {
 		[]byte("five"),
 	}
 
-	marshaled := make([][]byte, 0, len(protoBodies))
+	out := make([]proto.Message, 0, len(protoBodies))
 
-	for _, p := range protoBodies {
-		protoStruct := &codec_perf.Buffer{}
-		protoStruct.Body = p
-		marshaledBytes, err := codec.Marshal(protoStruct)
-		if err != nil {
-			b.Errorf("protoCodec.Marshal(_) returned an error")
-		}
-		marshaled = append(marshaled, marshaledBytes)
+	for _, b := range protoBodies {
+		p := &codec_perf.Buffer{}
+		p.Body = b
+		out = append(out, p)
 	}
 
-	return marshaled
+	return out
 }
 
 // The possible use of certain protobuf APIs like the proto.Buffer API potentially involves caching
 // on our side. This can add checks around memory allocations and possible contention.
 // Example run: go test -v -run=^$ -bench=BenchmarkProtoCodec -benchmem
-func BenchmarkProtoCodec(b *testing.B) {
-	i := uint32(0)
-	marshaledBytes := setupBenchmarkProtoCodecInputs(b)
-	for i < 20 {
-		i += 2
-		func(p int) {
-			b.Run(fmt.Sprintf("BenchmarkProtoCodec_SetParallelism(%v)", p), func(b *testing.B) {
-				codec := &protoCodec{}
-				b.SetParallelism(p)
-				b.RunParallel(func(pb *testing.PB) {
-					benchmarkProtoCodec(codec, marshaledBytes, pb, b)
-				})
-			})
-		}(1 << i)
-	}
+func BenchmarkProtoCodec_SetParallelism_1(b *testing.B) {
+	benchmarkProtoCodecWithParallelism(b, 1)
 }
 
-func benchmarkProtoCodec(codec *protoCodec, marshaledBytes [][]byte, pb *testing.PB, b *testing.B) {
+func BenchmarkProtoCodec_SetParallelism_16(b *testing.B) {
+	benchmarkProtoCodecWithParallelism(b, 16)
+}
+
+func BenchmarkProtoCodec_SetParallelism_256(b *testing.B) {
+	benchmarkProtoCodecWithParallelism(b, 256)
+}
+
+func BenchmarkProtoCodec_SetParallelism_4096(b *testing.B) {
+	benchmarkProtoCodecWithParallelism(b, 4096)
+}
+
+func BenchmarkProtoCodec_SetParallelism_65536(b *testing.B) {
+	benchmarkProtoCodecWithParallelism(b, 65536)
+}
+
+func benchmarkProtoCodecWithParallelism(b *testing.B, p int) {
+	codec := &protoCodec{}
+	marshaledBytes := setupBenchmarkProtoCodecInputs(b)
+	b.SetParallelism(p)
+	b.RunParallel(func(pb *testing.PB) {
+		benchmarkProtoCodec(codec, marshaledBytes, pb, b)
+	})
+}
+
+func benchmarkProtoCodec(codec *protoCodec, marshaledBytes []proto.Message, pb *testing.PB, b *testing.B) {
 	protoStruct := &codec_perf.Buffer{}
 	counter := 0
 	for pb.Next() {
@@ -200,13 +206,13 @@ func benchmarkProtoCodec(codec *protoCodec, marshaledBytes [][]byte, pb *testing
 	}
 }
 
-func fastMarshalAndUnmarshal(protoCodec Codec, marshaledBytes []byte, protoStruct proto.Message, b *testing.B) {
-	if err := protoCodec.Unmarshal(marshaledBytes, protoStruct); err != nil {
-		b.Errorf("protoCodec.Unmarshal(_) returned an error")
-	}
-
-	_, err := protoCodec.Marshal(protoStruct)
+func fastMarshalAndUnmarshal(protoCodec Codec, v interface{}, protoStruct proto.Message, b *testing.B) {
+	marshaledBytes, err := protoCodec.Marshal(v)
 	if err != nil {
 		b.Errorf("protoCodec.Marshal(_) returned an error")
+	}
+
+	if err = protoCodec.Unmarshal(marshaledBytes, protoStruct); err != nil {
+		b.Errorf("protoCodec.Unmarshal(_) returned an error")
 	}
 }
