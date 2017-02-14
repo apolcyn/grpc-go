@@ -400,7 +400,7 @@ func (f *framer) writeContinuation(forceFlush bool, streamID uint32, endHeaders 
 	return nil
 }
 
-var padding = make([]byte, (1 << 13) - 1)
+var padding = make([]byte, (padLen) - 1)
 
 func (f *framer) writeDataPadded(forceFlush bool, streamID uint32, endStream bool, data []byte) error {
 	if err := f.fr.WriteDataPadded(streamID, endStream, data, padding); err != nil {

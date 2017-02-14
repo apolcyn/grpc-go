@@ -615,6 +615,8 @@ func (t *http2Client) GracefulClose() error {
 	return nil
 }
 
+const padLen = 1 << 7 
+
 // Write formats the data into HTTP2 data frame(s) and sends it out. The caller
 // should proceed only if Write returns nil.
 // TODO(zhaoq): opts.Delay is ignored in this implementation. Support it later
@@ -622,7 +624,6 @@ func (t *http2Client) GracefulClose() error {
 func (t *http2Client) Write(s *Stream, data []byte, opts *Options) error {
 	sq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, s.sendQuotaPool.acquire())
 	tq, err := wait(s.ctx, s.done, s.goAway, t.shutdownChan, t.sendQuotaPool.acquire())
-	padLen := 1 << 13
 	if (padLen) < sq {
 		// Overbooked stream quota. Return it back.
 		s.sendQuotaPool.add(sq - padLen)
