@@ -389,6 +389,15 @@ func (t *http2Server) handleData(f *http2.DataFrame) {
 	}
 	// Select the right stream to dispatch.
 	s, ok := t.getStream(f)
+	if f.Header().Flags.Has(http2.FlagDataPadded) {
+		padding := uint32(f.Header().Length) - uint32(len(f.Data()))
+		if w := t.fc.onRead(uint32(padding)); w > 0 {
+			t.controlBuf.put(&windowUpdate{0, w})
+		}
+		if w := s.fc.onRead(1 + uint32(padding)); w > 0 {
+			t.controlBuf.put(&windowUpdate{s.id, w})
+		}
+	}
 	if !ok {
 		if w := t.fc.onRead(uint32(size)); w > 0 {
 			t.controlBuf.put(&windowUpdate{0, w})
