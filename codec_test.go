@@ -168,31 +168,38 @@ func setupBenchmarkProtoCodecInputs(b *testing.B) []proto.Message {
 // on our side. This can add checks around memory allocations and possible contention.
 // Example run: go test -v -run=^$ -bench=BenchmarkProtoCodec -benchmem
 func BenchmarkProtoCodec_SetParallelism_1(b *testing.B) {
-	benchmarkProtoCodecWithParallelism(b, 1)
+	benchmarkProtoCodecWithParallelism(b, 1, setupBenchmarkProtoCodecInputs(b))
 }
 
 func BenchmarkProtoCodec_SetParallelism_16(b *testing.B) {
-	benchmarkProtoCodecWithParallelism(b, 16)
+	benchmarkProtoCodecWithParallelism(b, 16, setupBenchmarkProtoCodecInputs(b))
 }
 
 func BenchmarkProtoCodec_SetParallelism_256(b *testing.B) {
-	benchmarkProtoCodecWithParallelism(b, 256)
+	benchmarkProtoCodecWithParallelism(b, 256, setupBenchmarkProtoCodecInputs(b))
 }
 
 func BenchmarkProtoCodec_SetParallelism_4096(b *testing.B) {
-	benchmarkProtoCodecWithParallelism(b, 4096)
+	benchmarkProtoCodecWithParallelism(b, 4096, setupBenchmarkProtoCodecInputs(b))
 }
 
 func BenchmarkProtoCodec_SetParallelism_65536(b *testing.B) {
-	benchmarkProtoCodecWithParallelism(b, 65536)
+	benchmarkProtoCodecWithParallelism(b, 65536, setupBenchmarkProtoCodecInputs(b))
 }
 
-func benchmarkProtoCodecWithParallelism(b *testing.B, p int) {
+func BenchmarkProtoCodec_Size_1024(b *testing.B) {
+	ps := make([]proto.Message, 1)
+	p := &codec_perf.Buffer{}
+	p.Body = make([]byte, 1024)
+	ps[0] = p
+	benchmarkProtoCodecWithParallelism(b, 65536, ps)
+}
+
+func benchmarkProtoCodecWithParallelism(b *testing.B, p int, protos []proto.Message) {
 	codec := &protoCodec{}
-	marshaledBytes := setupBenchmarkProtoCodecInputs(b)
 	b.SetParallelism(p)
 	b.RunParallel(func(pb *testing.PB) {
-		benchmarkProtoCodec(codec, marshaledBytes, pb, b)
+		benchmarkProtoCodec(codec, protos, pb, b)
 	})
 }
 
