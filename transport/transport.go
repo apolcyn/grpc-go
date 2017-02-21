@@ -153,6 +153,60 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 	}
 }
 
+type writeMsg struct {
+	data []byte
+	streamID int32
+	endStream bool
+	forceFlush bool
+}
+
+type writeBuffer struct {
+	c chan writeMsg
+	mu sync.Mutex
+	backlog []writeMsg
+}
+
+func newWriteBuffer() *writeBuffer {
+	b := &writeBuffer{
+		c: make(chan writeMsg, 1),
+	}
+	return b
+}
+
+func (b *writeBuffer) put(r writeMsg) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.backlog) == 0 {
+		select {
+		case b.c <- r:
+			return
+		default:
+		}
+	}
+	b.backlog = append(b.backlog, r)
+}
+
+func (b *writeBuffer) load() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.backlog) > 0 {
+		select {
+		case b.c <- b.backlog[0]:
+			b.backlog = b.backlog[1:]
+		default:
+		}
+	}
+}
+
+// get returns the channel that receives an item in the buffer.
+//
+// Upon receipt of an item, the caller should call load to send another
+// item onto the channel if there is any.
+func (b *writeBuffer) get() <-chan writeMsg {
+	return b.c
+}
+
+
 // All items in an out of a controlBuffer should be the same type.
 type item interface {
 	item()
