@@ -622,6 +622,7 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	// TODO(zhaoq): Support multi-writers for a single stream.
 	var writeHeaderFrame bool
+	var writeNotifier = make(chan error, 1)
 	s.mu.Lock()
 	if s.state == streamDone {
 		s.mu.Unlock()
@@ -666,47 +667,38 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			// Overbooked transport quota. Return it back.
 			t.sendQuotaPool.add(tq - ps)
 		}
-		t.framer.adjustNumWriters(1)
-		// Got some quota. Try to acquire writing privilege on the
-		// transport.
-		if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-			if _, ok := err.(StreamError); ok {
-				// Return the connection quota back.
-				t.sendQuotaPool.add(ps)
-			}
-			if t.framer.adjustNumWriters(-1) == 0 {
-				// This writer is the last one in this batch and has the
-				// responsibility to flush the buffered frames. It queues
-				// a flush request to controlBuf instead of flushing directly
-				// in order to avoid the race with other writing or flushing.
-				t.controlBuf.put(&flushIO{})
-			}
-			return err
-		}
 		select {
 		case <-s.ctx.Done():
 			t.sendQuotaPool.add(ps)
-			if t.framer.adjustNumWriters(-1) == 0 {
-				t.controlBuf.put(&flushIO{})
-			}
-			t.writableChan <- 0
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		var forceFlush bool
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
-			forceFlush = true
-		}
-		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
+		t.enqueueWriteData(s.id, false, p, writeNotifier)
+		if err := <-writeNotifier; err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
-		}
-		t.writableChan <- 0
 	}
 
+}
+
+func (t *http2Server) enqueueWriteData(streamID uint32, endStream bool, data []byte, notifier chan error) {
+	m := writeMsg{
+		forceFlush: true,
+		streamID: streamID,
+		endStream: endStream,
+		data: data,
+		notifier: notifier,
+	}
+	t.writeBuf.put(m)
+}
+
+func (t *http2Server) writeData(m writeMsg) {
+	if err := t.framer.writeData(m.forceFlush, m.streamID, m.endStream, m.data); err != nil {
+		m.notifier <- err
+	} else  {
+		m.notifier <- nil
+	}
 }
 
 func (t *http2Server) applySettings(ss []http2.Setting) {
@@ -767,6 +759,9 @@ func (t *http2Server) controller() {
 			case <-t.shutdownChan:
 				return
 			}
+		case m := <-t.writeBuf.get():
+			t.writeBuf.load()
+			t.writeData(m)
 		case <-t.shutdownChan:
 			return
 		}
