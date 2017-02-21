@@ -359,7 +359,40 @@ func TestClientMix(t *testing.T) {
 	}
 }
 
-func TestLargeMessage(t *testing.T) {
+func TestLargeMessageSingle(t *testing.T) {
+	server, ct := setUp(t, 0, math.MaxUint32, normal)
+	callHdr := &CallHdr{
+		Host:   "localhost",
+		Method: "foo.Large",
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 1; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s, err := ct.NewStream(context.Background(), callHdr)
+			if err != nil {
+				t.Errorf("%v.NewStream(_, _) = _, %v, want _, <nil>", ct, err)
+			}
+			if err := ct.Write(s, expectedRequestLarge, &Options{Last: true, Delay: false}); err != nil && err != io.EOF {
+				t.Errorf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
+			}
+			p := make([]byte, len(expectedResponseLarge))
+			if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+				t.Errorf("io.ReadFull(_, %v) = _, %v, want %v, <nil>", err, p, expectedResponse)
+			}
+			if _, err = io.ReadFull(s, p); err != io.EOF {
+				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
+			}
+		}()
+	}
+	wg.Wait()
+	ct.Close()
+	server.stop()
+}
+
+
+func TestLargeMessageConcurrent(t *testing.T) {
 	server, ct := setUp(t, 0, math.MaxUint32, normal)
 	callHdr := &CallHdr{
 		Host:   "localhost",

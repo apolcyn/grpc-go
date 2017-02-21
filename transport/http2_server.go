@@ -761,7 +761,11 @@ func (t *http2Server) controller() {
 			}
 		case m := <-t.writeBuf.get():
 			t.writeBuf.load()
-			t.writeData(m)
+			select {
+			case <- t.writableChan:
+				t.writeData(m)
+			}
+			t.writableChan <- 0
 		case <-t.shutdownChan:
 			return
 		}
