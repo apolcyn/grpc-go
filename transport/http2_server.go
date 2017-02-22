@@ -41,6 +41,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/net/context"
 	"golang.org/x/net/http2"
@@ -84,9 +85,9 @@ type http2Server struct {
 	// controlBuf delivers all the control related tasks (e.g., window
 	// updates, reset streams, and various settings) to the controller.
 	controlBuf *controlBuffer
-	writeBuf *writeBuffer
+	writeBuf   *writeBuffer
 
-	fc         *inFlow
+	fc *inFlow
 	// sendQuotaPool provides flow control to outbound message.
 	sendQuotaPool *quotaPool
 
@@ -94,7 +95,8 @@ type http2Server struct {
 	state         transportState
 	activeStreams map[uint32]*Stream
 	// the per-stream outbound flow control window size set by the peer.
-	streamSendQuota uint32
+	streamSendQuota   uint32
+	numPendingFlushes int32
 }
 
 // newHTTP2Server constructs a ServerTransport based on HTTP2. ConnectionError is
@@ -130,25 +132,26 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 	}
 	var buf bytes.Buffer
 	t := &http2Server{
-		ctx:             context.Background(),
-		conn:            conn,
-		remoteAddr:      conn.RemoteAddr(),
-		localAddr:       conn.LocalAddr(),
-		authInfo:        config.AuthInfo,
-		framer:          framer,
-		hBuf:            &buf,
-		hEnc:            hpack.NewEncoder(&buf),
-		maxStreams:      maxStreams,
-		inTapHandle:     config.InTapHandle,
-		controlBuf:      newControlBuffer(),
-		writeBuf:        newWriteBuffer(),
-		fc:              &inFlow{limit: initialConnWindowSize},
-		sendQuotaPool:   newQuotaPool(defaultWindowSize),
-		state:           reachable,
-		writableChan:    make(chan int, 1),
-		shutdownChan:    make(chan struct{}),
-		activeStreams:   make(map[uint32]*Stream),
-		streamSendQuota: defaultWindowSize,
+		ctx:               context.Background(),
+		conn:              conn,
+		remoteAddr:        conn.RemoteAddr(),
+		localAddr:         conn.LocalAddr(),
+		authInfo:          config.AuthInfo,
+		framer:            framer,
+		hBuf:              &buf,
+		hEnc:              hpack.NewEncoder(&buf),
+		maxStreams:        maxStreams,
+		inTapHandle:       config.InTapHandle,
+		controlBuf:        newControlBuffer(),
+		writeBuf:          newWriteBuffer(),
+		fc:                &inFlow{limit: initialConnWindowSize},
+		sendQuotaPool:     newQuotaPool(defaultWindowSize),
+		state:             reachable,
+		writableChan:      make(chan int, 1),
+		shutdownChan:      make(chan struct{}),
+		activeStreams:     make(map[uint32]*Stream),
+		streamSendQuota:   defaultWindowSize,
+		numPendingFlushes: 0,
 	}
 	if stats.On() {
 		t.ctx = stats.TagConn(t.ctx, &stats.ConnTagInfo{
@@ -617,6 +620,10 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 	return nil
 }
 
+func (t *http2Server) adjustNumPendingFlushes(i int32) int32 {
+	return atomic.AddInt32(&t.numPendingFlushes, i)
+}
+
 // Write converts the data into HTTP2 data frame and sends it out. Non-nil error
 // is returns if it fails (e.g., framing error, transport error).
 func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
@@ -697,16 +704,23 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
 			forceFlush = true
 		}
-		if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
+		if err := t.framer.writeData(false, s.id, false, p); err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
-		if t.framer.adjustNumWriters(-1) == 0 {
-			t.framer.flushWrite()
+		if t.framer.adjustNumWriters(-1) == 0 || forceFlush {
+			t.adjustNumPendingFlushes(1)
+			msg := writeMsg{
+				flush: func() {
+				        if t.adjustNumPendingFlushes(-1) == 1 {
+						t.framer.flushWrite()
+				        }
+				},
+			}
+			writeQueue.put(msg)
 		}
 		t.writableChan <- 0
 	}
-
 }
 
 func (t *http2Server) applySettings(ss []http2.Setting) {

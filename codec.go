@@ -94,7 +94,6 @@ func (p protoCodec) MarshalUseSlice(v interface{}, marshalTo []byte) ([]byte, er
 	return out, nil
 }
 
-
 func (p protoCodec) Unmarshal(data []byte, v interface{}) error {
 	//var token = atomic.AddUint32(&globalBufCacheToken, 1)
 	buffer := globalBufAlloc()

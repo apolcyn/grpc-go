@@ -232,14 +232,14 @@ func (p *parser) recvMsg(maxMsgSize int) (pf payloadFormat, msg []byte, err erro
 // generates the message header of 0 message length.
 func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer, outPayload *stats.OutPayload) ([]byte, error) {
 	var (
-		b      []byte
-		length uint
-		header []byte
+		b        []byte
+		length   uint
+		header   []byte
 		startBuf []byte
 	)
 	const (
-		payloadLen = 1
-		sizeLen    = 4
+		payloadLen     = 1
+		sizeLen        = 4
 		totalHeaderLen = 5
 	)
 
@@ -254,11 +254,11 @@ func encode(c Codec, msg interface{}, cp Compressor, cbuf *bytes.Buffer, outPayl
 	if msg != nil {
 		var err error
 		// TODO(zhaoq): optimize to reduce memory alloc and copying.
-	        if sc, ok := c.(sliceSuppliedCodec); ok {
+		if sc, ok := c.(sliceSuppliedCodec); ok {
 			b, err = sc.MarshalUseSlice(msg, startBuf[totalHeaderLen:])
-	        } else {
+		} else {
 			b, err = c.Marshal(msg)
-	        }
+		}
 		if err != nil {
 			return nil, err
 		}

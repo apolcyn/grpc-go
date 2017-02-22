@@ -154,15 +154,12 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 }
 
 type writeMsg struct {
-	data []byte
-	streamID int32
-	endStream bool
-	forceFlush bool
+	flush func()
 }
 
 type writeBuffer struct {
-	c chan writeMsg
-	mu sync.Mutex
+	c       chan writeMsg
+	mu      sync.Mutex
 	backlog []writeMsg
 }
 
@@ -205,7 +202,6 @@ func (b *writeBuffer) load() {
 func (b *writeBuffer) get() <-chan writeMsg {
 	return b.c
 }
-
 
 // All items in an out of a controlBuffer should be the same type.
 type item interface {
@@ -707,4 +703,16 @@ func wait(ctx context.Context, done, goAway, closing <-chan struct{}, proceed <-
 	case i := <-proceed:
 		return i, nil
 	}
+}
+
+var writeQueue = newWriteBuffer()
+
+func init() {
+	go func() {
+		for {
+			f := <-writeQueue.get()
+			writeQueue.load()
+			f.flush()
+		}
+	}()
 }
