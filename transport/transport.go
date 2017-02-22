@@ -155,7 +155,7 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 
 type writeMsg struct {
 	data []byte
-	streamID uint32
+	stream *Stream
 	endStream bool
 	forceFlush bool
 	notifier chan error

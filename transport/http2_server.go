@@ -159,6 +159,7 @@ func newHTTP2Server(conn net.Conn, config *ServerConfig) (_ ServerTransport, err
 		stats.HandleConn(t.ctx, connBegin)
 	}
 	go t.controller()
+	go t.writer()
 	t.writableChan <- 0
 	return t, nil
 }
@@ -646,16 +647,8 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		if err != nil {
 			return err
 		}
-		// Wait until the transport has some quota to send the data.
-		tq, err := wait(s.ctx, nil, nil, t.shutdownChan, t.sendQuotaPool.acquire())
-		if err != nil {
-			return err
-		}
 		if sq < size {
 			size = sq
-		}
-		if tq < size {
-			size = tq
 		}
 		p := r.Next(size)
 		ps := len(p)
@@ -663,17 +656,13 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			// Overbooked stream quota. Return it back.
 			s.sendQuotaPool.add(sq - ps)
 		}
-		if ps < tq {
-			// Overbooked transport quota. Return it back.
-			t.sendQuotaPool.add(tq - ps)
-		}
 		select {
 		case <-s.ctx.Done():
 			t.sendQuotaPool.add(ps)
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		t.enqueueWriteData(s.id, false, p, s.writeNotifier)
+		t.enqueueWriteData(s, false, p, s.writeNotifier)
 		if err := <-s.writeNotifier; err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
@@ -682,9 +671,9 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 
 }
 
-func (t *http2Server) enqueueWriteData(streamID uint32, endStream bool, data []byte, notifier chan error) {
+func (t *http2Server) enqueueWriteData(stream *Stream, endStream bool, data []byte, notifier chan error) {
 	m := writeMsg{
-		streamID: streamID,
+		stream: stream,
 		endStream: endStream,
 		data: data,
 		notifier: notifier,
@@ -693,10 +682,30 @@ func (t *http2Server) enqueueWriteData(streamID uint32, endStream bool, data []b
 }
 
 func (t *http2Server) writeData(m writeMsg, forceFlush bool) {
-	if err := t.framer.writeData(forceFlush, m.streamID, m.endStream, m.data); err != nil {
-		m.notifier <- err
-	} else  {
-		m.notifier <- nil
+	r := bytes.NewBuffer(m.data)
+	for {
+		if r.Len() == 0 {
+			m.notifier <- nil
+			return
+		}
+		// Wait until the transport has some quota to send the data.
+		tq, err := wait(m.stream.ctx, nil, nil, t.shutdownChan, t.sendQuotaPool.acquire())
+		if err != nil {
+			m.notifier <- err
+		}
+		p := r.Next(tq)
+		ps := len(p)
+		if ps < tq {
+			// Overbooked transport quota. Return it back.
+			t.sendQuotaPool.add(tq - ps)
+		} else {
+			// ps >= tq, flush so windows can continue to update
+			forceFlush = true
+		}
+	        if err := t.framer.writeData(forceFlush, m.stream.id, m.endStream, m.data); err != nil {
+			m.notifier <- err
+			return
+	        }
 	}
 }
 
@@ -711,6 +720,27 @@ func (t *http2Server) applySettings(ss []http2.Setting) {
 			t.streamSendQuota = s.Val
 		}
 
+	}
+}
+
+func (t *http2Server) writer() {
+	for {
+		select {
+		case m := <-t.writeBuf.get():
+			t.writeBuf.load()
+			select {
+			case <- t.writableChan:
+				flush := false
+				if len(t.writeBuf.get()) == 0 {
+					flush = true
+				}
+				t.writeData(m, flush)
+				t.writableChan <- 0
+				continue
+			case <- t.shutdownChan:
+				return
+			}
+		}
 	}
 }
 
@@ -758,17 +788,6 @@ func (t *http2Server) controller() {
 			case <-t.shutdownChan:
 				return
 			}
-		case m := <-t.writeBuf.get():
-			t.writeBuf.load()
-			select {
-			case <- t.writableChan:
-				flush := false
-				if len(t.writeBuf.get()) == 0 {
-					flush = true
-				}
-				t.writeData(m, flush)
-			}
-			t.writableChan <- 0
 		case <-t.shutdownChan:
 			return
 		}
