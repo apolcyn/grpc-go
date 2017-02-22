@@ -216,16 +216,14 @@ type Stream struct {
 	statusDesc string
 }
 
-type TransportStreamReader interface {
-	// Read exactly len(p) bytes from this stream into
-	// p, blocking if necessary.
-	// A non-nil error returned by this function
-	// indicates an error in the underlying stream.
-	// Also note: err != nil iff n == len(p)
-	ReadFull(p []byte) (n int, err error)
-}
-
-func (s *Stream) ReadFull(p []byte) (n int, err error) {
+// Read reads bytes from the stream and manages flow control as needed.
+// This Read function blocks until either the len(p) bytes have been read
+// into p, or until an error occurs.
+// Note that err == nil iff n == len(p)
+// Also note that an error returned by this function indicates an error
+// in the underlying stream, and future calls to Read will continue to
+// return that same error.
+func (s *Stream) Read(p []byte) (n int, err error) {
 	if s.readFullErr != nil {
 		return 0, s.readFullErr
 	}

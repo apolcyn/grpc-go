@@ -92,7 +92,7 @@ func (h *testStreamHandler) handleStream(t *testing.T, s *Stream) {
 		resp = expectedResponseLarge
 	}
 	p := make([]byte, len(req))
-	_, err := s.ReadFull(p)
+	_, err := io.ReadFull(s, p)
 	if err != nil {
 		return
 	}
@@ -117,7 +117,7 @@ func (h *testStreamHandler) handleStreamDelayBeginRead(t *testing.T, s *Stream) 
 	// Wait before reading. Give time to client to start sending
 	// before server starts reading.
 	time.Sleep(2 * time.Second)
-	_, err := s.ReadFull(p)
+	_, err := io.ReadFull(s, p)
 	if err != nil {
 		return
 	}
@@ -139,7 +139,7 @@ func (h *testStreamHandler) handleStreamDelayBeginWrite(t *testing.T, s *Stream)
 		resp = expectedResponseLarge
 	}
 	p := make([]byte, len(req))
-	_, err := s.ReadFull(p)
+	_, err := io.ReadFull(s, p)
 	if err != nil {
 		return
 	}
@@ -362,11 +362,11 @@ func TestClientSendAndReceive(t *testing.T) {
 		t.Fatalf("failed to send data: %v", err)
 	}
 	p := make([]byte, len(expectedResponse))
-	_, recvErr := s1.ReadFull(p)
+	_, recvErr := io.ReadFull(s1, p)
 	if recvErr != nil || !bytes.Equal(p, expectedResponse) {
 		t.Fatalf("Error: %v, want <nil>; Result: %v, want %v", recvErr, p, expectedResponse)
 	}
-	_, recvErr = s1.ReadFull(p)
+	_, recvErr = io.ReadFull(s1, p)
 	if recvErr != io.EOF {
 		t.Fatalf("Error: %v; want <EOF>", recvErr)
 	}
@@ -402,9 +402,9 @@ func performOneRPC(ct ClientTransport) {
 		//
 		// Read response
 		p := make([]byte, len(expectedResponse))
-		s.ReadFull(p)
+		io.ReadFull(s, p)
 		// Read io.EOF
-		s.ReadFull(p)
+		io.ReadFull(s, p)
 	}
 }
 
@@ -443,10 +443,10 @@ func TestLargeMessage(t *testing.T) {
 				t.Errorf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
 			}
 			p := make([]byte, len(expectedResponseLarge))
-			if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+			if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
 				t.Errorf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 			}
-			if _, err = s.ReadFull(p); err != io.EOF {
+			if _, err = io.ReadFull(s, p); err != io.EOF {
 				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
 			}
 		}()
@@ -479,10 +479,10 @@ func TestLargeMessageDelayBeginRead(t *testing.T) {
 
 			// Give time to server to begin sending before client starts reading.
 			time.Sleep(2 * time.Second)
-			if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+			if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
 				t.Errorf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 			}
-			if _, err = s.ReadFull(p); err != io.EOF {
+			if _, err = io.ReadFull(s, p); err != io.EOF {
 				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
 			}
 		}()
@@ -515,10 +515,10 @@ func TestLargeMessageDelayBeginWrite(t *testing.T) {
 				t.Errorf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
 			}
 			p := make([]byte, len(expectedResponseLarge))
-			if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
+			if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponseLarge) {
 				t.Errorf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 			}
-			if _, err = s.ReadFull(p); err != io.EOF {
+			if _, err = io.ReadFull(s, p); err != io.EOF {
 				t.Errorf("Failed to complete the stream %v; want <EOF>", err)
 			}
 		}()
@@ -561,10 +561,10 @@ func TestGracefulClose(t *testing.T) {
 		t.Fatalf("%v.Write(_, _, _) = %v, want  <nil>", ct, err)
 	}
 	p := make([]byte, len(expectedResponse))
-	if _, err := s.ReadFull(p); err != nil || !bytes.Equal(p, expectedResponse) {
+	if _, err := io.ReadFull(s, p); err != nil || !bytes.Equal(p, expectedResponse) {
 		t.Fatalf("s.ReadFull(%v) = _, %v, want %v, <nil>", err, p, expectedResponse)
 	}
-	if _, err = s.ReadFull(p); err != io.EOF {
+	if _, err = io.ReadFull(s, p); err != io.EOF {
 		t.Fatalf("Failed to complete the stream %v; want <EOF>", err)
 	}
 	wg.Wait()
@@ -809,7 +809,7 @@ func TestServerWithMisbehavedClient(t *testing.T) {
 	}
 	// Server sent a resetStream for s already.
 	code := http2ErrConvTab[http2.ErrCodeFlowControl]
-	if _, err := s.ReadFull(make([]byte, 1)); err != io.EOF || s.statusCode != code {
+	if _, err := io.ReadFull(s, make([]byte, 1)); err != io.EOF || s.statusCode != code {
 		t.Fatalf("%v got err %v with statusCode %d, want err <EOF> with statusCode %d", s, err, s.statusCode, code)
 	}
 
@@ -1005,7 +1005,7 @@ func TestReadFullGivesSameErrorAfterAnyErrorOccurs(t *testing.T) {
 	s.write(recvMsg{data: testData, err: testErr})
 
 	inBuf := make([]byte, 1)
-	actualCount, actualErr := s.ReadFull(inBuf)
+	actualCount, actualErr := io.ReadFull(s, inBuf)
 	if actualCount != 0 {
 		t.Error("actualCount, _ := s.ReadFull(_) differs; want %v; got %v", 0, actualCount)
 	}
@@ -1018,7 +1018,7 @@ func TestReadFullGivesSameErrorAfterAnyErrorOccurs(t *testing.T) {
 
 	for i := 0; i < 2; i++ {
 		inBuf := make([]byte, 1)
-		actualCount, actualErr := s.ReadFull(inBuf)
+		actualCount, actualErr := io.ReadFull(s, inBuf)
 		if actualCount != 0 {
 			t.Error("actualCount, _ := s.ReadFull(_) differs; want %v; got %v", 0, actualCount)
 		}
@@ -1060,7 +1060,7 @@ func TestReadFullDoesntUpdateFlowControlAfterErrorOccurs(t *testing.T) {
 	testErr := errors.New("test error")
 	s.write(recvMsg{data: testData, err: testErr})
 
-	_, _ = s.ReadFull(make([]byte, 1))
+	_, _ = io.ReadFull(s, make([]byte, 1))
 	if transportWindowHandlerCounter != 0 {
 		t.Error("transport.sr.transportWindowHandler called more times than expected; want %v; got %v", 0, transportWindowHandlerCounter)
 	}
@@ -1069,7 +1069,7 @@ func TestReadFullDoesntUpdateFlowControlAfterErrorOccurs(t *testing.T) {
 	s.write(recvMsg{data: testData, err: errors.New("different error from first")})
 
 	for i := 0; i < 2; i++ {
-		_, _ = s.ReadFull(make([]byte, 1))
+		_, _ = io.ReadFull(s, make([]byte, 1))
 		if streamWindowHandlerCounter != 1 {
 			t.Error("transport.streamWindowHandler called more times than expected; want %v; got %v", 1, streamWindowHandlerCounter)
 		}

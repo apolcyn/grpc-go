@@ -632,7 +632,7 @@ func (s *Server) processUnaryRPC(t transport.ServerTransport, stream *transport.
 		// NOTE: this needs to be ahead of all handling, https://github.com/grpc/grpc-go/issues/686.
 		stream.SetSendCompress(s.opts.cp.Type())
 	}
-	p := &parser{sr: stream}
+	p := &parser{r: stream}
 	for {
 		pf, req, err := p.recvMsg(s.opts.maxMsgSize)
 		if err == io.EOF {
@@ -790,7 +790,7 @@ func (s *Server) processStreamingRPC(t transport.ServerTransport, stream *transp
 	ss := &serverStream{
 		t:            t,
 		s:            stream,
-		p:            &parser{sr: stream},
+		p:            &parser{r: stream},
 		codec:        s.opts.codec,
 		cp:           s.opts.cp,
 		dc:           s.opts.dc,
