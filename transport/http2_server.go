@@ -171,6 +171,7 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 		st:  t,
 		buf: buf,
 		fc:  &inFlow{limit: initialWindowSize},
+		writeNotifier: make(chan error, 1),
 	}
 
 	var state decodeState
@@ -622,7 +623,6 @@ func (t *http2Server) WriteStatus(s *Stream, statusCode codes.Code, statusDesc s
 func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 	// TODO(zhaoq): Support multi-writers for a single stream.
 	var writeHeaderFrame bool
-	var writeNotifier = make(chan error, 1)
 	s.mu.Lock()
 	if s.state == streamDone {
 		s.mu.Unlock()
@@ -673,8 +673,8 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			return ContextErr(s.ctx.Err())
 		default:
 		}
-		t.enqueueWriteData(s.id, false, p, writeNotifier)
-		if err := <-writeNotifier; err != nil {
+		t.enqueueWriteData(s.id, false, p, s.writeNotifier)
+		if err := <-s.writeNotifier; err != nil {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
