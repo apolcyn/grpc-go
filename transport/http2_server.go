@@ -708,6 +708,7 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			t.Close()
 			return connectionErrorf(true, err, "transport: %v", err)
 		}
+		t.writableChan <- 0
 		if t.framer.adjustNumWriters(-1) == 0 || forceFlush {
 			t.adjustNumPendingFlushes(1)
 			msg := writeMsg{
@@ -725,7 +726,6 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			}
 			writeQueue.put(msg)
 		}
-		t.writableChan <- 0
 	}
 }
 
