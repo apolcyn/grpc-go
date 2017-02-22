@@ -712,9 +712,15 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 			t.adjustNumPendingFlushes(1)
 			msg := writeMsg{
 				flush: func() {
-				        if t.adjustNumPendingFlushes(-1) == 1 {
-						t.framer.flushWrite()
-				        }
+					select {
+					case <- t.shutdownChan:
+						t.adjustNumPendingFlushes(-1)
+					case <-t.writableChan:
+				                if t.adjustNumPendingFlushes(-1) == 0 {
+							t.framer.flushWrite()
+				                }
+						t.writableChan <- 0
+					}
 				},
 			}
 			writeQueue.put(msg)
