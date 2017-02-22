@@ -154,7 +154,8 @@ func (r *recvBufferReader) Read(p []byte) (n int, err error) {
 }
 
 type writeMsg struct {
-	flush func()
+	flush func() error
+	notifier chan error
 }
 
 type writeBuffer struct {
@@ -314,6 +315,7 @@ type Stream struct {
 	// the status received from the server.
 	statusCode codes.Code
 	statusDesc string
+	notifier chan error
 }
 
 // RecvCompress returns the compression algorithm applied to the inbound
@@ -705,14 +707,14 @@ func wait(ctx context.Context, done, goAway, closing <-chan struct{}, proceed <-
 	}
 }
 
-var writeQueue = newWriteBuffer()
+var writeQueue = make(chan writeMsg, 200)
 
 func init() {
 	go func() {
 		for {
-			f := <-writeQueue.get()
-			writeQueue.load()
-			f.flush()
+			f := <-writeQueue
+			err := f.flush()
+			f.notifier <- err
 		}
 	}()
 }

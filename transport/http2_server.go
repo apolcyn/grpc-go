@@ -174,6 +174,7 @@ func (t *http2Server) operateHeaders(frame *http2.MetaHeadersFrame, handle func(
 		st:  t,
 		buf: buf,
 		fc:  &inFlow{limit: initialWindowSize},
+		notifier: make(chan error, 1),
 	}
 
 	var state decodeState
@@ -676,55 +677,52 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 		t.framer.adjustNumWriters(1)
 		// Got some quota. Try to acquire writing privilege on the
 		// transport.
-		if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
-			if _, ok := err.(StreamError); ok {
-				// Return the connection quota back.
-				t.sendQuotaPool.add(ps)
-			}
-			if t.framer.adjustNumWriters(-1) == 0 {
-				// This writer is the last one in this batch and has the
-				// responsibility to flush the buffered frames. It queues
-				// a flush request to controlBuf instead of flushing directly
-				// in order to avoid the race with other writing or flushing.
-				t.controlBuf.put(&flushIO{})
-			}
-			return err
-		}
-		select {
-		case <-s.ctx.Done():
-			t.sendQuotaPool.add(ps)
-			if t.framer.adjustNumWriters(-1) == 0 {
-				t.controlBuf.put(&flushIO{})
-			}
+		write := func() error {
+	        	if _, err := wait(s.ctx, nil, nil, t.shutdownChan, t.writableChan); err != nil {
+	        		if _, ok := err.(StreamError); ok {
+	        			// Return the connection quota back.
+	        			t.sendQuotaPool.add(ps)
+	        		}
+	        		if t.framer.adjustNumWriters(-1) == 0 {
+	        			// This writer is the last one in this batch and has the
+	        			// responsibility to flush the buffered frames. It queues
+	        			// a flush request to controlBuf instead of flushing directly
+	        			// in order to avoid the race with other writing or flushing.
+	        			t.controlBuf.put(&flushIO{})
+	        		}
+	        		return err
+	        	}
+	        	select {
+	        	case <-s.ctx.Done():
+	        		t.sendQuotaPool.add(ps)
+	        		if t.framer.adjustNumWriters(-1) == 0 {
+	        			t.controlBuf.put(&flushIO{})
+	        		}
+	        		t.writableChan <- 0
+	        		return ContextErr(s.ctx.Err())
+	        	default:
+	        	}
+	        	var forceFlush bool
+	        	if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
+	        		forceFlush = true
+	        	}
+	        	if err := t.framer.writeData(forceFlush, s.id, false, p); err != nil {
+	        		t.Close()
+	        		return connectionErrorf(true, err, "transport: %v", err)
+	        	}
+	        	if t.framer.adjustNumWriters(-1) == 0 {
+	        		t.framer.flushWrite()
+	        	}
 			t.writableChan <- 0
-			return ContextErr(s.ctx.Err())
-		default:
+			return nil
 		}
-		var forceFlush bool
-		if r.Len() == 0 && t.framer.adjustNumWriters(0) == 1 && !opts.Last {
-			forceFlush = true
+		msg := writeMsg{
+			flush: write,
+			notifier: s.notifier,
 		}
-		if err := t.framer.writeData(false, s.id, false, p); err != nil {
-			t.Close()
-			return connectionErrorf(true, err, "transport: %v", err)
-		}
-		t.writableChan <- 0
-		if t.framer.adjustNumWriters(-1) == 0 || forceFlush {
-			t.adjustNumPendingFlushes(1)
-			msg := writeMsg{
-				flush: func() {
-					select {
-					case <- t.shutdownChan:
-						t.adjustNumPendingFlushes(-1)
-					case <-t.writableChan:
-				                if t.adjustNumPendingFlushes(-1) == 0 {
-							t.framer.flushWrite()
-				                }
-						t.writableChan <- 0
-					}
-				},
-			}
-			writeQueue.put(msg)
+		writeQueue <- msg
+		if err := <-msg.notifier; err != nil {
+			return err
 		}
 	}
 }
