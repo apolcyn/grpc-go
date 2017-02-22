@@ -684,7 +684,6 @@ func (t *http2Server) Write(s *Stream, data []byte, opts *Options) error {
 
 func (t *http2Server) enqueueWriteData(streamID uint32, endStream bool, data []byte, notifier chan error) {
 	m := writeMsg{
-		forceFlush: true,
 		streamID: streamID,
 		endStream: endStream,
 		data: data,
@@ -693,8 +692,8 @@ func (t *http2Server) enqueueWriteData(streamID uint32, endStream bool, data []b
 	t.writeBuf.put(m)
 }
 
-func (t *http2Server) writeData(m writeMsg) {
-	if err := t.framer.writeData(m.forceFlush, m.streamID, m.endStream, m.data); err != nil {
+func (t *http2Server) writeData(m writeMsg, forceFlush bool) {
+	if err := t.framer.writeData(forceFlush, m.streamID, m.endStream, m.data); err != nil {
 		m.notifier <- err
 	} else  {
 		m.notifier <- nil
@@ -763,7 +762,11 @@ func (t *http2Server) controller() {
 			t.writeBuf.load()
 			select {
 			case <- t.writableChan:
-				t.writeData(m)
+				flush := false
+				if len(t.writeBuf.get()) == 0 {
+					flush = true
+				}
+				t.writeData(m, flush)
 			}
 			t.writableChan <- 0
 		case <-t.shutdownChan:
