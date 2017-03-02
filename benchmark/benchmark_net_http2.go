@@ -71,7 +71,9 @@ func grpcPingPongFunc(expectedReqSize int32, respSize int32) func(w http.Respons
 	return pingPong
 }
 
-func StartGrpcUsingGoNetHttp2(port string, config *tls.Config, reqSize int32, respSize int32) {
+// starts up the server without blocking
+// returns an address string and a close func
+func StartGrpcUsingGoNetHttp2(port string, config *tls.Config, reqSize int32, respSize int32) (string, func()) {
 	addr := "0.0.0.0:" + port
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -86,5 +88,6 @@ func StartGrpcUsingGoNetHttp2(port string, config *tls.Config, reqSize int32, re
 	srv := &http.Server{Addr: addr, TLSConfig: config, Handler: handler}
 	http2.ConfigureServer(srv, nil)
 	tlsListener := tls.NewListener(l, config)
-	log.Fatal(srv.Serve(tlsListener))
+	go log.Fatal(srv.Serve(tlsListener))
+	return l.Addr().String(), func() { srv.Close() }
 }
