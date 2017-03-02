@@ -102,7 +102,7 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		return nil, grpc.Errorf(codes.InvalidArgument, "unknow server type: %v", config.ServerType)
 	}
 
-	var tlsCreds *tls.Config
+	tlsCreds := &tls.Config{}
 	// Set security options.
 	if config.SecurityParams != nil {
 		cert := abs(certFile)
