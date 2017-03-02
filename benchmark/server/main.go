@@ -44,6 +44,10 @@ func (byteBufCodec) String() string {
 	return "bytebuffer"
 }
 
+const (
+	byteBufRespSize = 2
+)
+
 func main() {
 	flag.Parse()
 	go func() {
@@ -63,7 +67,7 @@ func main() {
 	config.Certificates = make([]tls.Certificate, 1)
 	config.Certificates[0], _ = tls.LoadX509KeyPair(certFile, keyFile)
 	creds := credentials.NewTLS(config)
-	addr, stopper := benchmark.StartServer(benchmark.ServerInfo{Addr: ":8081", Type: "bytebuf", Metadata: int32(10)}, grpc.CustomCodec(&byteBufCodec{}), grpc.Creds(creds)) // listen on all interfaces
+	addr, stopper := benchmark.StartServer(benchmark.ServerInfo{Addr: ":8081", Type: "bytebuf", Metadata: int32(byteBufRespSize)}, grpc.CustomCodec(&byteBufCodec{}), grpc.Creds(creds)) // listen on all interfaces
 	grpclog.Println("Server Address: ", addr)
 	<-time.After(time.Duration(*duration) * time.Second)
 	stopper()
