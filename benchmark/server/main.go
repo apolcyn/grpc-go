@@ -57,8 +57,8 @@ func main() {
 		}
 	}()
 	config := &tls.Config{}
-	certFile := "/usr/local/google/home/apolcyn/fake_certs/server.crt"
-	keyFile := "/usr/local/google/home/apolcyn/fake_certs/server.key"
+	certFile := "server.crt"
+	keyFile := "server.key"
 	config.NextProtos = []string{"h2"}
 	config.Certificates = make([]tls.Certificate, 1)
 	config.Certificates[0], _ = tls.LoadX509KeyPair(certFile, keyFile)
