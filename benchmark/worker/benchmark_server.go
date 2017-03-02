@@ -34,6 +34,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"log"
 	"runtime"
 	"strconv"
 	"strings"
@@ -44,7 +46,6 @@ import (
 	"google.golang.org/grpc/benchmark"
 	testpb "google.golang.org/grpc/benchmark/grpc_testing"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -101,13 +102,20 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		return nil, grpc.Errorf(codes.InvalidArgument, "unknow server type: %v", config.ServerType)
 	}
 
+	tlsCreds := &tls.Config{}
 	// Set security options.
 	if config.SecurityParams != nil {
-		creds, err := credentials.NewServerTLSFromFile(abs(certFile), abs(keyFile))
+		cert := abs(certFile)
+		key := abs(keyFile)
+		tlsCreds.NextProtos = []string{"h2"}
+		tlsCreds.Certificates = make([]tls.Certificate, 1)
+		var err error
+		tlsCreds.Certificates[0], err = tls.LoadX509KeyPair(cert, key)
 		if err != nil {
 			grpclog.Fatalf("failed to generate credentials %v", err)
 		}
-		opts = append(opts, grpc.Creds(creds))
+	} else {
+		log.Fatalf("only secure config works")
 	}
 
 	// Priority: config.Port > serverPort > default (0).
@@ -125,17 +133,16 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 	if config.PayloadConfig != nil {
 		switch payload := config.PayloadConfig.Payload.(type) {
 		case *testpb.PayloadConfig_BytebufParams:
-			opts = append(opts, grpc.CustomCodec(byteBufCodec{}))
-			addr, closeFunc = benchmark.StartServer(benchmark.ServerInfo{
-				Addr:     ":" + strconv.Itoa(port),
-				Type:     "bytebuf",
-				Metadata: payload.BytebufParams.RespSize,
-			}, opts...)
+			// start simple grpc byte buf streaming server that uses full net/http2 transport
+			log.Println("about to start server")
+			addr, closeFunc = benchmark.StartGrpcUsingGoNetHttp2(strconv.Itoa(port),
+				tlsCreds,
+				payload.BytebufParams.RespSize,
+				payload.BytebufParams.ReqSize)
+			log.Println("just started server")
 		case *testpb.PayloadConfig_SimpleParams:
-			addr, closeFunc = benchmark.StartServer(benchmark.ServerInfo{
-				Addr: ":" + strconv.Itoa(port),
-				Type: "protobuf",
-			}, opts...)
+			// net/http2 grpc server only runs byte buf
+			log.Fatalf("only bytebuf config works")
 		case *testpb.PayloadConfig_ComplexParams:
 			return nil, grpc.Errorf(codes.Unimplemented, "unsupported payload config: %v", config.PayloadConfig)
 		default:

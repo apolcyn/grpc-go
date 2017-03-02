@@ -34,6 +34,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"math"
 	"runtime"
 	"sync"
@@ -135,10 +136,12 @@ func createConns(config *testpb.ClientConfig) ([]*grpc.ClientConn, func(), error
 
 	// Check and set security options.
 	if config.SecurityParams != nil {
-		creds, err := credentials.NewClientTLSFromFile(abs(caFile), config.SecurityParams.ServerHostOverride)
-		if err != nil {
-			return nil, nil, grpc.Errorf(codes.InvalidArgument, "failed to create TLS credentials %v", err)
-		}
+		//creds, err := credentials.NewClientTLSFromFile(abs(caFile), config.SecurityParams.ServerHostOverride)
+		//if err != nil {
+		//	return nil, nil, grpc.Errorf(codes.InvalidArgument, "failed to create TLS credentials %v", err)
+		//}
+		config := &tls.Config{InsecureSkipVerify: true}
+		creds := credentials.NewTLS(config)
 		opts = append(opts, grpc.WithTransportCredentials(creds))
 	} else {
 		opts = append(opts, grpc.WithInsecure())
@@ -150,6 +153,7 @@ func createConns(config *testpb.ClientConfig) ([]*grpc.ClientConn, func(), error
 		case *testpb.PayloadConfig_BytebufParams:
 			opts = append(opts, grpc.WithCodec(byteBufCodec{}))
 		case *testpb.PayloadConfig_SimpleParams:
+			panic("want byte buf")
 		default:
 			return nil, nil, grpc.Errorf(codes.InvalidArgument, "unknow payload config: %v", config.PayloadConfig)
 		}
