@@ -134,10 +134,12 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		switch payload := config.PayloadConfig.Payload.(type) {
 		case *testpb.PayloadConfig_BytebufParams:
 			// start simple grpc byte buf streaming server that uses full net/http2 transport
+			log.Println("about to start server")
 			addr, closeFunc = benchmark.StartGrpcUsingGoNetHttp2(strconv.Itoa(port),
 				tlsCreds,
 				payload.BytebufParams.RespSize,
 				payload.BytebufParams.ReqSize)
+			log.Println("just started server")
 		case *testpb.PayloadConfig_SimpleParams:
 			// net/http2 grpc server only runs byte buf
 			log.Fatalf("only bytebuf config works")
