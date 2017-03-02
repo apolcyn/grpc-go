@@ -46,7 +46,6 @@ import (
 	"google.golang.org/grpc/benchmark"
 	testpb "google.golang.org/grpc/benchmark/grpc_testing"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/grpclog"
 )
 
@@ -104,14 +103,17 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 	}
 
 	var tlsCreds *tls.Config
-	var err error
 	// Set security options.
 	if config.SecurityParams != nil {
-		tlsCreds, err = credentials.NewServerTLSFromFile(abs(certFile), abs(keyFile))
+		cert := abs(certFile)
+		key := abs(keyFile)
+		tlsCreds.NextProtos = []string{"h2"}
+		tlsCreds.Certificates = make([]tls.Certificate, 1)
+		var err error
+		tlsCreds.Certificates[0], err = tls.LoadX509KeyPair(cert, key)
 		if err != nil {
 			grpclog.Fatalf("failed to generate credentials %v", err)
 		}
-		opts = append(opts, grpc.Creds(tlsCreds))
 	} else {
 		log.Fatalf("only secure config works")
 	}
@@ -131,11 +133,13 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 	if config.PayloadConfig != nil {
 		switch payload := config.PayloadConfig.Payload.(type) {
 		case *testpb.PayloadConfig_BytebufParams:
-			StartGrpcUsingGoNetHttp2(strconv.Itoa(port),
+			// start simple grpc byte buf streaming server that uses full net/http2 transport
+			benchmark.StartGrpcUsingGoNetHttp2(strconv.Itoa(port),
 				tlsCreds,
 				payload.BytebufParams.RespSize,
 				payload.BytebufParams.ReqSize)
 		case *testpb.PayloadConfig_SimpleParams:
+			// net/http2 grpc server only runs byte buf
 			log.Fatalf("only bytebuf config works")
 		case *testpb.PayloadConfig_ComplexParams:
 			return nil, grpc.Errorf(codes.Unimplemented, "unsupported payload config: %v", config.PayloadConfig)

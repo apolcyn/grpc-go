@@ -48,7 +48,7 @@ func WriteGrpcMsg(w io.Writer, body []byte, out []byte) {
 	w.(http.Flusher).Flush()
 }
 
-func grpcPingPongFunc(expectedReqSize int, respSize int) func(w http.ResponseWriter, req *http.Request) {
+func grpcPingPongFunc(expectedReqSize int32, respSize int32) func(w http.ResponseWriter, req *http.Request) {
 	pingPong := func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "application/grpc")
 		w.Header().Set("Content-Length", "-1")
@@ -71,7 +71,7 @@ func grpcPingPongFunc(expectedReqSize int, respSize int) func(w http.ResponseWri
 	return pingPong
 }
 
-func StartGrpcUsingGoNetHttp2(port string, config *tls.Config, reqSize int, respSize int) {
+func StartGrpcUsingGoNetHttp2(port string, config *tls.Config, reqSize int32, respSize int32) {
 	addr := "0.0.0.0:" + port
 	l, err := net.Listen("tcp", addr)
 	if err != nil {
