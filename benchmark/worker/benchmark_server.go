@@ -34,6 +34,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"log"
 	"runtime"
 	"strconv"
 	"strings"
@@ -101,13 +103,17 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 		return nil, grpc.Errorf(codes.InvalidArgument, "unknow server type: %v", config.ServerType)
 	}
 
+	var tlsCreds *tls.Config
+	var err error
 	// Set security options.
 	if config.SecurityParams != nil {
-		creds, err := credentials.NewServerTLSFromFile(abs(certFile), abs(keyFile))
+		tlsCreds, err = credentials.NewServerTLSFromFile(abs(certFile), abs(keyFile))
 		if err != nil {
 			grpclog.Fatalf("failed to generate credentials %v", err)
 		}
-		opts = append(opts, grpc.Creds(creds))
+		opts = append(opts, grpc.Creds(tlsCreds))
+	} else {
+		log.Fatalf("only secure config works")
 	}
 
 	// Priority: config.Port > serverPort > default (0).
@@ -125,17 +131,12 @@ func startBenchmarkServer(config *testpb.ServerConfig, serverPort int) (*benchma
 	if config.PayloadConfig != nil {
 		switch payload := config.PayloadConfig.Payload.(type) {
 		case *testpb.PayloadConfig_BytebufParams:
-			opts = append(opts, grpc.CustomCodec(byteBufCodec{}))
-			addr, closeFunc = benchmark.StartServer(benchmark.ServerInfo{
-				Addr:     ":" + strconv.Itoa(port),
-				Type:     "bytebuf",
-				Metadata: payload.BytebufParams.RespSize,
-			}, opts...)
+			StartGrpcUsingGoNetHttp2(strconv.Itoa(port),
+				tlsCreds,
+				payload.BytebufParams.RespSize,
+				payload.BytebufParams.ReqSize)
 		case *testpb.PayloadConfig_SimpleParams:
-			addr, closeFunc = benchmark.StartServer(benchmark.ServerInfo{
-				Addr: ":" + strconv.Itoa(port),
-				Type: "protobuf",
-			}, opts...)
+			log.Fatalf("only bytebuf config works")
 		case *testpb.PayloadConfig_ComplexParams:
 			return nil, grpc.Errorf(codes.Unimplemented, "unsupported payload config: %v", config.PayloadConfig)
 		default:
