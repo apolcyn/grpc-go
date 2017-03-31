@@ -207,6 +207,8 @@ func performRPCs(config *testpb.ClientConfig, conns []*grpc.ClientConn, bc *benc
 		// TODO open loop.
 	case testpb.RpcType_STREAMING:
 		bc.doCloseLoopStreaming(conns, rpcCountPerConn, payloadReqSize, payloadRespSize, payloadType)
+	case testpb.RpcType_STREAMING_FROM_CLIENT:
+		bc.doClientPushStreaming(conns, rpcCountPerConn, payloadReqSize, payloadRespSize, payloadType)
 		// TODO open loop.
 	default:
 		return grpc.Errorf(codes.InvalidArgument, "unknown rpc type: %v", config.RpcType)
@@ -295,11 +297,13 @@ func (bc *benchmarkClient) doCloseLoopUnary(conns []*grpc.ClientConn, rpcCountPe
 
 func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCountPerConn int, reqSize int, respSize int, payloadType string) {
 	var doRPC func(testpb.BenchmarkService_StreamingCallClient, int, int) error
-	if payloadType == "bytebuf" {
-		doRPC = benchmark.DoByteBufStreamingRoundTrip
-	} else {
+
+	if payloadType == "protobuf" {
 		doRPC = benchmark.DoStreamingRoundTrip
+	} else {
+		grpclog.Fatal("unimplemented")
 	}
+
 	for ic, conn := range conns {
 		// For each connection, create rpcCountPerConn goroutines to do rpc.
 		for j := 0; j < rpcCountPerConn; j++ {
@@ -334,6 +338,51 @@ func (bc *benchmarkClient) doCloseLoopStreaming(conns []*grpc.ClientConn, rpcCou
 		}
 	}
 }
+
+func (bc *benchmarkClient) doClientPushStreaming(conns []*grpc.ClientConn, rpcCountPerConn int, reqSize int, respSize int, payloadType string) {
+	var doRPC func(testpb.BenchmarkService_StreamingFromClientClient, int, int) error
+
+	if payloadType == "protobuf" {
+		doRPC = benchmark.DoClientPush
+	} else {
+		grpclog.Fatal("unimplemented")
+	}
+
+	for ic, conn := range conns {
+		// For each connection, create rpcCountPerConn goroutines to do rpc.
+		for j := 0; j < rpcCountPerConn; j++ {
+			c := testpb.NewBenchmarkServiceClient(conn)
+			stream, err := c.StreamingFromClient(context.Background())
+			if err != nil {
+				grpclog.Fatalf("%v.StreamingCall(_) = _, %v", c, err)
+			}
+			// Create histogram for each goroutine.
+			idx := ic*rpcCountPerConn + j
+			bc.lockingHistograms[idx].histogram = stats.NewHistogram(bc.histogramOptions)
+			// Start goroutine on the created mutex and histogram.
+			go func(idx int) {
+				// TODO: do warm up if necessary.
+				// Now relying on worker client to reserve time to do warm up.
+				// The worker client needs to wait for some time after client is created,
+				// before starting benchmark.
+				for {
+					start := time.Now()
+					if err := doRPC(stream, reqSize, respSize); err != nil {
+						return
+					}
+					elapse := time.Since(start)
+					bc.lockingHistograms[idx].add(int64(elapse))
+					select {
+					case <-bc.stop:
+						return
+					default:
+					}
+				}
+			}(idx)
+		}
+	}
+}
+
 
 // getStats returns the stats for benchmark client.
 // It resets lastResetTime and all histograms if argument reset is true.

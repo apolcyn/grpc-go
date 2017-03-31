@@ -2,6 +2,22 @@
 // source: proto2_ext2.proto
 // DO NOT EDIT!
 
+/*
+Package grpc_testing is a generated protocol buffer package.
+
+It is generated from these files:
+	proto2_ext2.proto
+	proto2_ext.proto
+	proto2.proto
+	test.proto
+
+It has these top-level messages:
+	AnotherExtension
+	Extension
+	ToBeExtended
+	SearchResponse
+	SearchRequest
+*/
 package grpc_testing
 
 import proto "github.com/golang/protobuf/proto"
@@ -13,6 +29,12 @@ var _ = proto.Marshal
 var _ = fmt.Errorf
 var _ = math.Inf
 
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
+
 type AnotherExtension struct {
 	Whatchamacallit  *int32 `protobuf:"varint,1,opt,name=whatchamacallit" json:"whatchamacallit,omitempty"`
 	XXX_unrecognized []byte `json:"-"`
@@ -21,7 +43,7 @@ type AnotherExtension struct {
 func (m *AnotherExtension) Reset()                    { *m = AnotherExtension{} }
 func (m *AnotherExtension) String() string            { return proto.CompactTextString(m) }
 func (*AnotherExtension) ProtoMessage()               {}
-func (*AnotherExtension) Descriptor() ([]byte, []int) { return fileDescriptor2, []int{0} }
+func (*AnotherExtension) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
 func (m *AnotherExtension) GetWhatchamacallit() int32 {
 	if m != nil && m.Whatchamacallit != nil {
@@ -54,11 +76,11 @@ func init() {
 	proto.RegisterExtension(E_Nitz)
 }
 
-func init() { proto.RegisterFile("proto2_ext2.proto", fileDescriptor2) }
+func init() { proto.RegisterFile("proto2_ext2.proto", fileDescriptor0) }
 
-var fileDescriptor2 = []byte{
+var fileDescriptor0 = []byte{
 	// 165 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0x12, 0x2c, 0x28, 0xca, 0x2f,
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0x2c, 0x28, 0xca, 0x2f,
 	0xc9, 0x37, 0x8a, 0x4f, 0xad, 0x28, 0x31, 0xd2, 0x03, 0xb3, 0x85, 0x78, 0xd2, 0x8b, 0x0a, 0x92,
 	0xf5, 0x4a, 0x52, 0x8b, 0x4b, 0x32, 0xf3, 0xd2, 0xa5, 0x78, 0x20, 0x0a, 0x20, 0x72, 0x4a, 0x36,
 	0x5c, 0x02, 0x8e, 0x79, 0xf9, 0x25, 0x19, 0xa9, 0x45, 0xae, 0x15, 0x25, 0xa9, 0x79, 0xc5, 0x99,

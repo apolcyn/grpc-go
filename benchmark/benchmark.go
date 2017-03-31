@@ -102,6 +102,34 @@ func (s *testServer) StreamingCall(stream testpb.BenchmarkService_StreamingCallS
 	}
 }
 
+func (s *testServer) StreamingBothWays(stream testpb.BenchmarkService_StreamingBothWaysServer) error {
+	return nil
+}
+
+func (s *testServer) StreamingFromClient(stream testpb.BenchmarkService_StreamingFromClientServer) error {
+	response := &testpb.SimpleResponse{
+		Payload: new(testpb.Payload),
+	}
+	in := new(testpb.SimpleRequest)
+	for {
+		// use ServerStream directly to reuse the same testpb.SimpleRequest object
+		err := stream.(grpc.ServerStream).RecvMsg(in)
+		if err == io.EOF {
+			// read done.
+			stream.SendAndClose(response)
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		setPayload(response.Payload, in.ResponseType, int(in.ResponseSize))
+	}
+}
+
+func (s *testServer) StreamingFromServer(request *testpb.SimpleRequest, stream testpb.BenchmarkService_StreamingFromServerServer) error {
+	return nil
+}
+
 // byteBufServer is a gRPC server that sends and receives byte buffer.
 // The purpose is to benchmark the gRPC performance without protobuf serialization/deserialization overhead.
 type byteBufServer struct {
@@ -129,6 +157,18 @@ func (s *byteBufServer) StreamingCall(stream testpb.BenchmarkService_StreamingCa
 			return err
 		}
 	}
+}
+
+func (s *byteBufServer) StreamingBothWays(stream testpb.BenchmarkService_StreamingBothWaysServer) error {
+	return nil
+}
+
+func (s *byteBufServer) StreamingFromClient(stream testpb.BenchmarkService_StreamingFromClientServer) error {
+	return nil
+}
+
+func (s *byteBufServer) StreamingFromServer(request *testpb.SimpleRequest, stream testpb.BenchmarkService_StreamingFromServerServer) error {
+	return nil
 }
 
 // ServerInfo contains the information to create a gRPC benchmark server.
@@ -203,6 +243,19 @@ func DoStreamingRoundTrip(stream testpb.BenchmarkService_StreamingCallClient, re
 			return nil
 		}
 		return fmt.Errorf("/BenchmarkService/StreamingCall.Recv(_) = %v, want <nil>", err)
+	}
+	return nil
+}
+
+func DoClientPush(stream testpb.BenchmarkService_StreamingFromClientClient, reqSize, respSize int) error {
+	pl := newPayload(testpb.PayloadType_COMPRESSABLE, reqSize)
+	req := &testpb.SimpleRequest{
+		ResponseType: pl.Type,
+		ResponseSize: int32(respSize),
+		Payload:      pl,
+	}
+	if err := stream.Send(req); err != nil {
+		return fmt.Errorf("/BenchmarkService/StreamingCall.Send(_) = %v, want <nil>", err)
 	}
 	return nil
 }

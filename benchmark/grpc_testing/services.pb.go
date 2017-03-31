@@ -10,7 +10,6 @@ import math "math"
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 )
 
@@ -33,9 +32,19 @@ type BenchmarkServiceClient interface {
 	// One request followed by one response.
 	// The server returns the client payload as-is.
 	UnaryCall(ctx context.Context, in *SimpleRequest, opts ...grpc.CallOption) (*SimpleResponse, error)
-	// One request followed by one response.
-	// The server returns the client payload as-is.
+	// Repeated sequence of one request followed by one response.
+	// Should be called streaming ping-pong
+	// The server returns the client payload as-is on each response
 	StreamingCall(ctx context.Context, opts ...grpc.CallOption) (BenchmarkService_StreamingCallClient, error)
+	// Single-sided unbounded streaming from client to server
+	// The server returns the client payload as-is once the client does WritesDone
+	StreamingFromClient(ctx context.Context, opts ...grpc.CallOption) (BenchmarkService_StreamingFromClientClient, error)
+	// Single-sided unbounded streaming from server to client
+	// The server repeatedly returns the client payload as-is
+	StreamingFromServer(ctx context.Context, in *SimpleRequest, opts ...grpc.CallOption) (BenchmarkService_StreamingFromServerClient, error)
+	// Two-sided unbounded streaming between server to client
+	// Both sides send the content of their own choice to the other
+	StreamingBothWays(ctx context.Context, opts ...grpc.CallOption) (BenchmarkService_StreamingBothWaysClient, error)
 }
 
 type benchmarkServiceClient struct {
@@ -86,15 +95,122 @@ func (x *benchmarkServiceStreamingCallClient) Recv() (*SimpleResponse, error) {
 	return m, nil
 }
 
+func (c *benchmarkServiceClient) StreamingFromClient(ctx context.Context, opts ...grpc.CallOption) (BenchmarkService_StreamingFromClientClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_BenchmarkService_serviceDesc.Streams[1], c.cc, "/grpc.testing.BenchmarkService/StreamingFromClient", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &benchmarkServiceStreamingFromClientClient{stream}
+	return x, nil
+}
+
+type BenchmarkService_StreamingFromClientClient interface {
+	Send(*SimpleRequest) error
+	CloseAndRecv() (*SimpleResponse, error)
+	grpc.ClientStream
+}
+
+type benchmarkServiceStreamingFromClientClient struct {
+	grpc.ClientStream
+}
+
+func (x *benchmarkServiceStreamingFromClientClient) Send(m *SimpleRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *benchmarkServiceStreamingFromClientClient) CloseAndRecv() (*SimpleResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(SimpleResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *benchmarkServiceClient) StreamingFromServer(ctx context.Context, in *SimpleRequest, opts ...grpc.CallOption) (BenchmarkService_StreamingFromServerClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_BenchmarkService_serviceDesc.Streams[2], c.cc, "/grpc.testing.BenchmarkService/StreamingFromServer", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &benchmarkServiceStreamingFromServerClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type BenchmarkService_StreamingFromServerClient interface {
+	Recv() (*SimpleResponse, error)
+	grpc.ClientStream
+}
+
+type benchmarkServiceStreamingFromServerClient struct {
+	grpc.ClientStream
+}
+
+func (x *benchmarkServiceStreamingFromServerClient) Recv() (*SimpleResponse, error) {
+	m := new(SimpleResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *benchmarkServiceClient) StreamingBothWays(ctx context.Context, opts ...grpc.CallOption) (BenchmarkService_StreamingBothWaysClient, error) {
+	stream, err := grpc.NewClientStream(ctx, &_BenchmarkService_serviceDesc.Streams[3], c.cc, "/grpc.testing.BenchmarkService/StreamingBothWays", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &benchmarkServiceStreamingBothWaysClient{stream}
+	return x, nil
+}
+
+type BenchmarkService_StreamingBothWaysClient interface {
+	Send(*SimpleRequest) error
+	Recv() (*SimpleResponse, error)
+	grpc.ClientStream
+}
+
+type benchmarkServiceStreamingBothWaysClient struct {
+	grpc.ClientStream
+}
+
+func (x *benchmarkServiceStreamingBothWaysClient) Send(m *SimpleRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *benchmarkServiceStreamingBothWaysClient) Recv() (*SimpleResponse, error) {
+	m := new(SimpleResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // Server API for BenchmarkService service
 
 type BenchmarkServiceServer interface {
 	// One request followed by one response.
 	// The server returns the client payload as-is.
 	UnaryCall(context.Context, *SimpleRequest) (*SimpleResponse, error)
-	// One request followed by one response.
-	// The server returns the client payload as-is.
+	// Repeated sequence of one request followed by one response.
+	// Should be called streaming ping-pong
+	// The server returns the client payload as-is on each response
 	StreamingCall(BenchmarkService_StreamingCallServer) error
+	// Single-sided unbounded streaming from client to server
+	// The server returns the client payload as-is once the client does WritesDone
+	StreamingFromClient(BenchmarkService_StreamingFromClientServer) error
+	// Single-sided unbounded streaming from server to client
+	// The server repeatedly returns the client payload as-is
+	StreamingFromServer(*SimpleRequest, BenchmarkService_StreamingFromServerServer) error
+	// Two-sided unbounded streaming between server to client
+	// Both sides send the content of their own choice to the other
+	StreamingBothWays(BenchmarkService_StreamingBothWaysServer) error
 }
 
 func RegisterBenchmarkServiceServer(s *grpc.Server, srv BenchmarkServiceServer) {
@@ -145,6 +261,79 @@ func (x *benchmarkServiceStreamingCallServer) Recv() (*SimpleRequest, error) {
 	return m, nil
 }
 
+func _BenchmarkService_StreamingFromClient_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(BenchmarkServiceServer).StreamingFromClient(&benchmarkServiceStreamingFromClientServer{stream})
+}
+
+type BenchmarkService_StreamingFromClientServer interface {
+	SendAndClose(*SimpleResponse) error
+	Recv() (*SimpleRequest, error)
+	grpc.ServerStream
+}
+
+type benchmarkServiceStreamingFromClientServer struct {
+	grpc.ServerStream
+}
+
+func (x *benchmarkServiceStreamingFromClientServer) SendAndClose(m *SimpleResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *benchmarkServiceStreamingFromClientServer) Recv() (*SimpleRequest, error) {
+	m := new(SimpleRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func _BenchmarkService_StreamingFromServer_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SimpleRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BenchmarkServiceServer).StreamingFromServer(m, &benchmarkServiceStreamingFromServerServer{stream})
+}
+
+type BenchmarkService_StreamingFromServerServer interface {
+	Send(*SimpleResponse) error
+	grpc.ServerStream
+}
+
+type benchmarkServiceStreamingFromServerServer struct {
+	grpc.ServerStream
+}
+
+func (x *benchmarkServiceStreamingFromServerServer) Send(m *SimpleResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _BenchmarkService_StreamingBothWays_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(BenchmarkServiceServer).StreamingBothWays(&benchmarkServiceStreamingBothWaysServer{stream})
+}
+
+type BenchmarkService_StreamingBothWaysServer interface {
+	Send(*SimpleResponse) error
+	Recv() (*SimpleRequest, error)
+	grpc.ServerStream
+}
+
+type benchmarkServiceStreamingBothWaysServer struct {
+	grpc.ServerStream
+}
+
+func (x *benchmarkServiceStreamingBothWaysServer) Send(m *SimpleResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *benchmarkServiceStreamingBothWaysServer) Recv() (*SimpleRequest, error) {
+	m := new(SimpleRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 var _BenchmarkService_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "grpc.testing.BenchmarkService",
 	HandlerType: (*BenchmarkServiceServer)(nil),
@@ -158,6 +347,22 @@ var _BenchmarkService_serviceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "StreamingCall",
 			Handler:       _BenchmarkService_StreamingCall_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamingFromClient",
+			Handler:       _BenchmarkService_StreamingFromClient_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamingFromServer",
+			Handler:       _BenchmarkService_StreamingFromServer_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamingBothWays",
+			Handler:       _BenchmarkService_StreamingBothWays_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
@@ -424,21 +629,23 @@ var _WorkerService_serviceDesc = grpc.ServiceDesc{
 func init() { proto.RegisterFile("services.proto", fileDescriptor3) }
 
 var fileDescriptor3 = []byte{
-	// 254 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xa4, 0x91, 0xc1, 0x4a, 0xc4, 0x30,
-	0x10, 0x86, 0xa9, 0x07, 0xa1, 0xc1, 0x2e, 0x92, 0x93, 0x46, 0x1f, 0xc0, 0x53, 0x91, 0xd5, 0x17,
-	0x70, 0x8b, 0x1e, 0x05, 0xb7, 0xa8, 0xe7, 0x58, 0x87, 0x1a, 0x36, 0x4d, 0xea, 0xcc, 0x44, 0xf0,
-	0x49, 0x7c, 0x07, 0x9f, 0xd2, 0xee, 0x66, 0x0b, 0xb5, 0xe4, 0xb6, 0xc7, 0xf9, 0xbf, 0xe1, 0x23,
-	0x7f, 0x46, 0x2c, 0x08, 0xf0, 0xcb, 0x34, 0x40, 0x65, 0x8f, 0x9e, 0xbd, 0x3c, 0x69, 0xb1, 0x6f,
-	0x4a, 0x06, 0x62, 0xe3, 0x5a, 0xb5, 0xe8, 0x80, 0x48, 0xb7, 0x23, 0x55, 0x45, 0xe3, 0x1d, 0xa3,
-	0xb7, 0x71, 0x5c, 0xfe, 0x66, 0xe2, 0x74, 0x05, 0xae, 0xf9, 0xe8, 0x34, 0x6e, 0xea, 0x28, 0x92,
-	0x0f, 0x22, 0x7f, 0x76, 0x1a, 0xbf, 0x2b, 0x6d, 0xad, 0xbc, 0x28, 0xa7, 0xbe, 0xb2, 0x36, 0x5d,
-	0x6f, 0x61, 0x0d, 0x9f, 0x61, 0x08, 0xd4, 0x65, 0x1a, 0x52, 0xef, 0x1d, 0x81, 0x7c, 0x14, 0x45,
-	0xcd, 0x08, 0xba, 0x1b, 0xd8, 0x81, 0xae, 0xab, 0xec, 0x3a, 0x5b, 0xfe, 0x1c, 0x89, 0xe2, 0xd5,
-	0xe3, 0x06, 0x70, 0x7c, 0xe9, 0xbd, 0xc8, 0xd7, 0xc1, 0x6d, 0x27, 0x40, 0x79, 0x36, 0x13, 0xec,
-	0xd2, 0x3b, 0x6c, 0x49, 0xa9, 0x14, 0xa9, 0x59, 0x73, 0xa0, 0xad, 0x78, 0xaf, 0xa9, 0xac, 0x01,
-	0xc7, 0x73, 0x4d, 0x4c, 0x53, 0x9a, 0x48, 0x26, 0x9a, 0x95, 0xc8, 0x2b, 0x8f, 0x50, 0xf9, 0x30,
-	0x68, 0xce, 0x67, 0xcb, 0x03, 0x18, 0x9b, 0xaa, 0x14, 0xda, 0xff, 0xd9, 0xad, 0x10, 0x4f, 0xc1,
-	0x70, 0xac, 0x29, 0xe5, 0xff, 0xcd, 0x17, 0x6f, 0xde, 0x55, 0x22, 0x7b, 0x3b, 0xde, 0x5d, 0xf3,
-	0xe6, 0x2f, 0x00, 0x00, 0xff, 0xff, 0x3b, 0x84, 0x02, 0xe3, 0x0c, 0x02, 0x00, 0x00,
+	// 288 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xa4, 0xd2, 0xc1, 0x4e, 0x83, 0x40,
+	0x10, 0x06, 0xe0, 0x54, 0x13, 0x13, 0x36, 0xd2, 0xe8, 0x7a, 0xd1, 0xd5, 0x07, 0xf0, 0x44, 0x4c,
+	0xf5, 0x05, 0x84, 0xd8, 0xa3, 0x89, 0x10, 0xed, 0x79, 0xc5, 0x09, 0xdd, 0x14, 0x76, 0x70, 0x76,
+	0x30, 0xe9, 0x93, 0xf8, 0x06, 0x3e, 0xa7, 0x91, 0xa5, 0xa4, 0x52, 0x6e, 0x1c, 0x99, 0x7f, 0xf3,
+	0x65, 0x66, 0x18, 0x31, 0x77, 0x40, 0x5f, 0x26, 0x07, 0x17, 0xd5, 0x84, 0x8c, 0xf2, 0xb4, 0xa0,
+	0x3a, 0x8f, 0x18, 0x1c, 0x1b, 0x5b, 0xa8, 0x79, 0x05, 0xce, 0xe9, 0x62, 0x97, 0xaa, 0x30, 0x47,
+	0xcb, 0x84, 0xa5, 0xff, 0x5c, 0xfc, 0x1c, 0x8b, 0xb3, 0x18, 0x6c, 0xbe, 0xae, 0x34, 0x6d, 0x32,
+	0x0f, 0xc9, 0xa5, 0x08, 0x5e, 0xad, 0xa6, 0x6d, 0xa2, 0xcb, 0x52, 0x5e, 0x47, 0xfb, 0x5e, 0x94,
+	0x99, 0xaa, 0x2e, 0x21, 0x85, 0xcf, 0x06, 0x1c, 0xab, 0x9b, 0xf1, 0xd0, 0xd5, 0x68, 0x1d, 0xc8,
+	0x67, 0x11, 0x66, 0x4c, 0xa0, 0x2b, 0x63, 0x8b, 0x89, 0xd6, 0xed, 0xec, 0x6e, 0x26, 0x53, 0x71,
+	0xd1, 0x7b, 0x4b, 0xc2, 0x2a, 0x29, 0x0d, 0x58, 0x9e, 0xa4, 0x1e, 0x98, 0x7f, 0x3b, 0x00, 0x9a,
+	0x60, 0xb6, 0x7d, 0x9e, 0xf7, 0x66, 0x8c, 0xbc, 0x5e, 0xe9, 0xad, 0x9b, 0x38, 0xfb, 0xe2, 0xfb,
+	0x48, 0x84, 0x2b, 0xa4, 0x0d, 0xd0, 0xee, 0x2f, 0x3d, 0x89, 0x20, 0x6d, 0x6c, 0xd7, 0xef, 0xe5,
+	0x00, 0x68, 0xab, 0x8f, 0x54, 0x38, 0xa5, 0xc6, 0x92, 0x8c, 0x35, 0x37, 0xae, 0x5d, 0xaa, 0x67,
+	0xba, 0x55, 0x0e, 0x18, 0x5f, 0x1d, 0x63, 0x7c, 0xb2, 0xc7, 0xc4, 0x22, 0x48, 0x90, 0x20, 0xc1,
+	0xc6, 0xb2, 0xbc, 0x1a, 0x3c, 0x46, 0xea, 0x27, 0x55, 0x63, 0x51, 0x77, 0x2f, 0x0f, 0x42, 0xbc,
+	0x34, 0x86, 0xfd, 0x98, 0x52, 0xfe, 0x7f, 0xf9, 0x86, 0xe6, 0x43, 0x8d, 0xd4, 0xde, 0x4f, 0xda,
+	0x4b, 0xbe, 0xff, 0x0d, 0x00, 0x00, 0xff, 0xff, 0x8f, 0x81, 0x1b, 0xa8, 0x08, 0x03, 0x00, 0x00,
 }

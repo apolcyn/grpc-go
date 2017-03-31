@@ -20,7 +20,6 @@ import math "math"
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 )
 
@@ -70,6 +69,13 @@ func (m *HealthCheckRequest) String() string            { return proto.CompactTe
 func (*HealthCheckRequest) ProtoMessage()               {}
 func (*HealthCheckRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
+func (m *HealthCheckRequest) GetService() string {
+	if m != nil {
+		return m.Service
+	}
+	return ""
+}
+
 type HealthCheckResponse struct {
 	Status HealthCheckResponse_ServingStatus `protobuf:"varint,1,opt,name=status,enum=grpc.health.v1.HealthCheckResponse_ServingStatus" json:"status,omitempty"`
 }
@@ -78,6 +84,13 @@ func (m *HealthCheckResponse) Reset()                    { *m = HealthCheckRespo
 func (m *HealthCheckResponse) String() string            { return proto.CompactTextString(m) }
 func (*HealthCheckResponse) ProtoMessage()               {}
 func (*HealthCheckResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *HealthCheckResponse) GetStatus() HealthCheckResponse_ServingStatus {
+	if m != nil {
+		return m.Status
+	}
+	return HealthCheckResponse_UNKNOWN
+}
 
 func init() {
 	proto.RegisterType((*HealthCheckRequest)(nil), "grpc.health.v1.HealthCheckRequest")
@@ -161,7 +174,7 @@ func init() { proto.RegisterFile("health.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
 	// 204 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0xe2, 0xc9, 0x48, 0x4d, 0xcc,
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0xc9, 0x48, 0x4d, 0xcc,
 	0x29, 0xc9, 0xd0, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x4b, 0x2f, 0x2a, 0x48, 0xd6, 0x83,
 	0x0a, 0x95, 0x19, 0x2a, 0xe9, 0x71, 0x09, 0x79, 0x80, 0x39, 0xce, 0x19, 0xa9, 0xc9, 0xd9, 0x41,
 	0xa9, 0x85, 0xa5, 0xa9, 0xc5, 0x25, 0x42, 0x12, 0x5c, 0xec, 0xc5, 0xa9, 0x45, 0x65, 0x99, 0xc9,

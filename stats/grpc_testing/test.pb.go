@@ -20,7 +20,6 @@ import math "math"
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 )
 
@@ -35,7 +34,6 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-// Unary request.
 type SimpleRequest struct {
 	Id int32 `protobuf:"varint,2,opt,name=id" json:"id,omitempty"`
 }
@@ -45,7 +43,13 @@ func (m *SimpleRequest) String() string            { return proto.CompactTextStr
 func (*SimpleRequest) ProtoMessage()               {}
 func (*SimpleRequest) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
-// Unary response, as configured by the request.
+func (m *SimpleRequest) GetId() int32 {
+	if m != nil {
+		return m.Id
+	}
+	return 0
+}
+
 type SimpleResponse struct {
 	Id int32 `protobuf:"varint,3,opt,name=id" json:"id,omitempty"`
 }
@@ -54,6 +58,13 @@ func (m *SimpleResponse) Reset()                    { *m = SimpleResponse{} }
 func (m *SimpleResponse) String() string            { return proto.CompactTextString(m) }
 func (*SimpleResponse) ProtoMessage()               {}
 func (*SimpleResponse) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
+
+func (m *SimpleResponse) GetId() int32 {
+	if m != nil {
+		return m.Id
+	}
+	return 0
+}
 
 func init() {
 	proto.RegisterType((*SimpleRequest)(nil), "grpc.testing.SimpleRequest")
@@ -212,7 +223,7 @@ func init() { proto.RegisterFile("test.proto", fileDescriptor0) }
 
 var fileDescriptor0 = []byte{
 	// 167 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0xe2, 0x2a, 0x49, 0x2d, 0x2e,
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0xe2, 0x2a, 0x49, 0x2d, 0x2e,
 	0xd1, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x49, 0x2f, 0x2a, 0x48, 0xd6, 0x03, 0x09, 0x64,
 	0xe6, 0xa5, 0x2b, 0xc9, 0x73, 0xf1, 0x06, 0x67, 0xe6, 0x16, 0xe4, 0xa4, 0x06, 0xa5, 0x16, 0x96,
 	0xa6, 0x16, 0x97, 0x08, 0xf1, 0x71, 0x31, 0x65, 0xa6, 0x48, 0x30, 0x29, 0x30, 0x6a, 0xb0, 0x06,
