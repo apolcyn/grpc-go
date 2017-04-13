@@ -35,10 +35,11 @@
 Package transport defines and implements message oriented communication channel
 to complete various transactions (e.g., an RPC).
 */
-package transport // import "google.golang.org/grpc/transport"
+package test_client // import "google.golang.org/grpc/test_client"
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,8 +53,10 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/stats"
 	"google.golang.org/grpc/status"
-	"google.golang.org/grpc/tap"
 )
+
+// ErrIllegalHeaderWrite indicates that setting header is illegal because of
+var ErrIllegalHeaderWrite = errors.New("transport: the stream is done or WriteHeader was already called")
 
 // recvMsg represents the received msg from the transport. All transport
 // protocol specific info has been removed.
@@ -169,8 +172,6 @@ const (
 // Stream represents an RPC in the transport layer.
 type Stream struct {
 	id uint32
-	// nil for client side Stream.
-	st ServerTransport
 	// clientStatsCtx keeps the user context for stats handling.
 	// It's only valid on client side. Server side stats context is same as s.ctx.
 	// All client side stats collection should use the clientStatsCtx (instead of the stream context)
@@ -268,12 +269,6 @@ func (s *Stream) Trailer() metadata.MD {
 	return s.trailer.Copy()
 }
 
-// ServerTransport returns the underlying ServerTransport for the stream.
-// The client side stream always returns nil.
-func (s *Stream) ServerTransport() ServerTransport {
-	return s.st
-}
-
 // Context returns the context of the stream.
 func (s *Stream) Context() context.Context {
 	return s.ctx
@@ -301,18 +296,6 @@ func (s *Stream) SetHeader(md metadata.MD) error {
 		return nil
 	}
 	s.header = metadata.Join(s.header, md)
-	return nil
-}
-
-// SetTrailer sets the trailer metadata which will be sent with the RPC status
-// by the server. This can be called multiple times. Server side only.
-func (s *Stream) SetTrailer(md metadata.MD) error {
-	if md.Len() == 0 {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.trailer = metadata.Join(s.trailer, md)
 	return nil
 }
 
@@ -365,22 +348,6 @@ const (
 	closing
 	draining
 )
-
-// ServerConfig consists of all the configurations to establish a server transport.
-type ServerConfig struct {
-	MaxStreams      uint32
-	AuthInfo        credentials.AuthInfo
-	InTapHandle     tap.ServerInHandle
-	StatsHandler    stats.Handler
-	KeepaliveParams keepalive.ServerParameters
-	KeepalivePolicy keepalive.EnforcementPolicy
-}
-
-// NewServerTransport creates a ServerTransport with conn or non-nil error
-// if it fails.
-func NewServerTransport(protocol string, conn net.Conn, config *ServerConfig) (ServerTransport, error) {
-	return newHTTP2Server(conn, config)
-}
 
 // ConnectOptions covers all relevant options for communicating with the server.
 type ConnectOptions struct {
@@ -487,39 +454,6 @@ type ClientTransport interface {
 	// receives the draining signal from the server (e.g., GOAWAY frame in
 	// HTTP/2).
 	GoAway() <-chan struct{}
-}
-
-// ServerTransport is the common interface for all gRPC server-side transport
-// implementations.
-//
-// Methods may be called concurrently from multiple goroutines, but
-// Write methods for a given Stream will be called serially.
-type ServerTransport interface {
-	// HandleStreams receives incoming streams using the given handler.
-	HandleStreams(func(*Stream), func(context.Context, string) context.Context)
-
-	// WriteHeader sends the header metadata for the given stream.
-	// WriteHeader may not be called on all streams.
-	WriteHeader(s *Stream, md metadata.MD) error
-
-	// Write sends the data for the given stream.
-	// Write may not be called on all streams.
-	Write(s *Stream, data []byte, opts *Options) error
-
-	// WriteStatus sends the status of a stream to the client.  WriteStatus is
-	// the final call made on a stream and always occurs.
-	WriteStatus(s *Stream, st status.Status) error
-
-	// Close tears down the transport. Once it is called, the transport
-	// should not be accessed any more. All the pending streams and their
-	// handlers will be terminated asynchronously.
-	Close() error
-
-	// RemoteAddr returns the remote network address.
-	RemoteAddr() net.Addr
-
-	// Drain notifies the client this ServerTransport stops accepting new RPCs.
-	Drain()
 }
 
 // streamErrorf creates an StreamError with the specified error code and description.

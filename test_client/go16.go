@@ -32,7 +32,7 @@
  *
  */
 
-package transport
+package test_client
 
 import (
 	"net"

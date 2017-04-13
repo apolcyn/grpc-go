@@ -31,7 +31,7 @@
  *
  */
 
-package transport
+package test_client
 
 import (
 	"bytes"
