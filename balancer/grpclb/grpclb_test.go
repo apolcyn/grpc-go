@@ -628,6 +628,67 @@ func TestBalancerDisconnects(t *testing.T) {
 	t.Fatalf("No RPC sent to second backend after 1 second")
 }
 
+
+// When there are multiple backends and all of them are unreachable, the RPC should fail.
+func TestUnableToConnectToMultipleBackends(t *testing.T) {
+	defer leakcheck.Check(t)
+	const numBackends = 5
+
+	r, cleanup := manual.GenerateAndRegisterManualResolver()
+	defer cleanup()
+
+	var (
+		tests []*testServers
+		lbs   []*grpc.Server
+	)
+	if tss, cleanup, err := newLoadBalancer(numBackends); err != nil {
+		t.Fatalf("failed to create new load balancer: %v", err)
+	}
+	defer cleanup()
+	var bes []*lbpb.Server
+	for i := 0; i < numBackends; i++ {
+		be := &lbpb.Server{
+			IpAddress:        tss.beIPs[i],
+			Port:             int32(tss.bePorts[i]),
+			LoadBalanceToken: lbToken,
+		}
+		bes = append(bes, be)
+	}
+	sl := &lbpb.ServerList{
+		Servers: bes,
+	}
+	tss.ls.sls <- sl
+
+	tests = append(tests, tss)
+	lbs = append(lbs, tss.lb)
+
+	creds := serverNameCheckCreds{
+		expected: beServerName + "_wont_match",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cc, err := grpc.DialContext(
+		ctx,
+		r.Scheme()+":///"+beServerName,
+		grpc.WithTransportCredentials(&creds),
+		grpc.WithDialer(fakeNameDialer))
+	if err != nil {
+		t.Fatalf("Failed to dial to the backend %v", err)
+	}
+	defer cc.Close()
+	testC := testpb.NewTestServiceClient(cc)
+
+	r.NewAddress([]resolver.Address{{
+		Addr:       tests[0].lbAddr,
+		Type:       resolver.GRPCLB,
+		ServerName: lbServerName,
+	}})
+
+	if _, err := testC.EmptyCall(context.Background(), &testpb.Empty{}, grpc.FailFast(false)); err == nil {
+		t.Fatalf("Expected %v.EmptyCall(_, _) to fail, but it succceeded.", testC)
+	}
+}
+
 type customGRPCLBBuilder struct {
 	balancer.Builder
 	name string
