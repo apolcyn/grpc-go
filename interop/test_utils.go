@@ -650,11 +650,11 @@ func DoPickFirstUnary(tc testpb.TestServiceClient) {
 		Payload:      pl,
 		FillServerId: true,
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	var serverID string
 	for i := 0; i < rpcCount; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		resp, err := tc.UnaryCall(ctx, req)
+		cancel()
 		if err != nil {
 			grpclog.Fatalf("iteration %d, failed to do UnaryCall: %v", i, err)
 		}
