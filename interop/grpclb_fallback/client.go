@@ -26,6 +26,7 @@ import (
 	"flag"
 	"log"
 	"net"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -36,7 +37,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/alts"
 	"google.golang.org/grpc/credentials/google"
-	"google.golang.org/grpc/grpclog"
 	testpb "google.golang.org/grpc/interop/grpc_testing"
 )
 
@@ -51,28 +51,26 @@ var (
         fast_fallback_after_startup : LB/backend connections fail fast after RPC's have been made;
         slow_fallback_before_startup : LB/backend connections black hole before RPC's have been made;
         slow_fallback_after_startup : LB/backend connections black hole after RPC's have been made;`)
+	infoLog  = log.New(os.Stderr, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+	errorLog = log.New(os.Stderr, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
 )
 
 func doRPCAndGetPath(client testpb.TestServiceClient, deadline time.Duration, waitForReady bool) testpb.GrpclbRouteType {
-	grpclog.Infof("doRPCAndGetPath deadline:%v waitForReady:%v", deadline, waitForReady)
+	infoLog.Println("doRPCAndGetPath deadline:%v waitForReady:%v", deadline, waitForReady)
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
-	copts := []grpc.CallOption{}
-	if waitForReady {
-		copts = append(copts, grpc.WaitForReady(true))
-	}
 	req := &testpb.SimpleRequest{
 		FillGrpclbRouteType: true,
 	}
-	reply, err := client.UnaryCall(ctx, req, copts...)
+	reply, err := client.UnaryCall(ctx, req, grpc.WaitForReady(waitForReady))
 	if err != nil {
-		grpclog.Infof("doRPCAndGetPath error:%v", err)
+		infoLog.Println("doRPCAndGetPath error:%v", err)
 		return testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_UNKNOWN
 	}
 	g := reply.GetGrpclbRouteType()
-	grpclog.Infof("doRPCAndGetPath got grpclb route type: %v", g)
+	infoLog.Println("doRPCAndGetPath got grpclb route type: %v", g)
 	if g != testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_FALLBACK && g != testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_BACKEND {
-		grpclog.Fatalf("Expected grpclb route type to be either backend or fallback", g)
+		errorLog.Fatalf("Expected grpclb route type to be either backend or fallback", g)
 	}
 	return g
 }
@@ -84,10 +82,10 @@ func dialTCPUserTimeout(ctx context.Context, addr string) (net.Conn, error) {
 			syscallErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_TCP, unix.TCP_USER_TIMEOUT, 20000)
 		})
 		if syscallErr != nil {
-			grpclog.Fatalf("syscall error setting sockopt TCP_USER_TIMEOUT: %v", syscallErr)
+			errorLog.Fatalf("syscall error setting sockopt TCP_USER_TIMEOUT: %v", syscallErr)
 		}
 		if controlErr != nil {
-			grpclog.Fatalf("control error setting sockopt TCP_USER_TIMEOUT: %v", syscallErr)
+			errorLog.Fatalf("control error setting sockopt TCP_USER_TIMEOUT: %v", syscallErr)
 		}
 		return nil
 	}
@@ -113,19 +111,19 @@ func createTestConn() *grpc.ClientConn {
 	case "compute_engine_channel_creds":
 		opts = append(opts, grpc.WithCredentialsBundle(google.NewComputeEngineCredentials()))
 	default:
-		grpclog.Fatalf("Invalid --custom_credentials_type:%v", *customCredentialsType)
+		errorLog.Fatalf("Invalid --custom_credentials_type:%v", *customCredentialsType)
 	}
 	conn, err := grpc.Dial(*serverURI, opts...)
 	if err != nil {
-		log.Fatalf("Fail to dial: %v", err)
+		errorLog.Fatalf("Fail to dial: %v", err)
 	}
 	return conn
 }
 
 func runCmd(command string) {
-	grpclog.Infof("Running cmd:|%v|", command)
+	infoLog.Println("Running cmd:|%v|", command)
 	if err := exec.Command("bash", "-c", command).Run(); err != nil {
-		grpclog.Fatalf("error running cmd:|%v| : %v", command, err)
+		errorLog.Fatalf("error running cmd:|%v| : %v", command, err)
 	}
 }
 
@@ -136,7 +134,7 @@ func runFallbackBeforeStartupTest(breakLBAndBackendConnsCmd string, perRPCDeadli
 	client := testpb.NewTestServiceClient(conn)
 	for i := 0; i < 30; i++ {
 		if g := doRPCAndGetPath(client, time.Duration(perRPCDeadlineSeconds)*time.Second, false); g != testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_FALLBACK {
-			grpclog.Fatalf("Expected RPC to take grpclb route type FALLBACK. Got: %v", g)
+			errorLog.Fatalf("Expected RPC to take grpclb route type FALLBACK. Got: %v", g)
 		}
 		time.Sleep(time.Second)
 	}
@@ -155,25 +153,25 @@ func runFallbackAfterStartupTest(breakLBAndBackendConnsCmd string) {
 	defer conn.Close()
 	client := testpb.NewTestServiceClient(conn)
 	if g := doRPCAndGetPath(client, 20*time.Second, false); g != testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_BACKEND {
-		grpclog.Fatalf("Expected route type BACKEND. Got: %v", g)
+		errorLog.Fatalf("Expected route type BACKEND. Got: %v", g)
 	}
 	runCmd(breakLBAndBackendConnsCmd)
 	for i := 0; i < 40; i++ {
 		// Perform a wait-for-ready RPC
 		g := doRPCAndGetPath(client, 1*time.Second, true)
 		if g == testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_FALLBACK {
-			grpclog.Infof("Made one successul RPC to a fallback. Now expect the same for the rest.")
+			infoLog.Println("Made one successul RPC to a fallback. Now expect the same for the rest.")
 			break
 		} else if g == testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_BACKEND {
-			grpclog.Fatalf("Got RPC type backend. This suggests an error in test implementation")
+			errorLog.Fatalf("Got RPC type backend. This suggests an error in test implementation")
 		} else {
-			grpclog.Infof("Retryable RPC failure on iteration: %v", i)
+			infoLog.Println("Retryable RPC failure on iteration: %v", i)
 		}
 	}
 	for i := 0; i < 30; i++ {
 		g := doRPCAndGetPath(client, 20*time.Second, false)
 		if g != testpb.GrpclbRouteType_GRPCLB_ROUTE_TYPE_FALLBACK {
-			grpclog.Fatalf("Expected grpclb route type: FALLBACK. Got: %v", g)
+			errorLog.Fatalf("Expected grpclb route type: FALLBACK. Got: %v", g)
 		}
 		time.Sleep(time.Second)
 	}
@@ -190,10 +188,10 @@ func doSlowFallbackAfterStartup() {
 func main() {
 	flag.Parse()
 	if len(*unrouteLBAndBackendAddrsCmd) == 0 {
-		grpclog.Fatalf("--unroute_lb_and_backend_addrs_cmd unset")
+		errorLog.Fatalf("--unroute_lb_and_backend_addrs_cmd unset")
 	}
 	if len(*blackholeLBAndBackendAddrsCmd) == 0 {
-		grpclog.Fatalf("--blackhole_lb_and_backend_addrs_cmd unset")
+		errorLog.Fatalf("--blackhole_lb_and_backend_addrs_cmd unset")
 	}
 	switch *testCase {
 	case "fast_fallback_before_startup":
@@ -209,6 +207,6 @@ func main() {
 		doSlowFallbackAfterStartup()
 		log.Println("SlowFallbackAfterStartup done!")
 	default:
-		log.Fatalf("Unsupported test case: %v", *testCase)
+		errorLog.Fatalf("Unsupported test case: %v", *testCase)
 	}
 }
